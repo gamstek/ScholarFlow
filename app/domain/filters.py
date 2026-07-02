@@ -35,8 +35,8 @@ from typing import Optional
 
 from app.domain.keywords import (
     EXCLUSION_KEYWORDS,
-    FOOD_COMPONENT_KEYWORDS,
-    FOOD_SOURCE_KEYWORDS,
+    DOMAIN_COMPONENT_KEYWORDS,
+    DOMAIN_SOURCE_KEYWORDS,
     MASS_SPEC_KEYWORDS,
     OMICS_KEYWORDS,
     STRONG_POSITIVE_KEYWORDS,
@@ -259,12 +259,12 @@ def calculate_domain_score(
 
     matched_food_sources = find_matched_keywords(
         combined_text,
-        FOOD_SOURCE_KEYWORDS,
+        DOMAIN_SOURCE_KEYWORDS,
     )
 
     matched_components = find_matched_keywords(
         combined_text,
-        FOOD_COMPONENT_KEYWORDS,
+        DOMAIN_COMPONENT_KEYWORDS,
     )
 
     matched_structure_terms = find_matched_keywords(

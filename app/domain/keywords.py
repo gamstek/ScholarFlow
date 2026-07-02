@@ -19,7 +19,7 @@ from __future__ import annotations
 # 1. 来源相关关键词 Source Keywords
 # ============================================================
 
-FOOD_SOURCE_KEYWORDS: list[str] = [
+DOMAIN_SOURCE_KEYWORDS: list[str] = [
     # 通用食品词
     "food",
     "foods",
@@ -74,7 +74,7 @@ FOOD_SOURCE_KEYWORDS: list[str] = [
 # 2. 成分类别关键词 Component Class Keywords
 # ============================================================
 
-FOOD_COMPONENT_KEYWORDS: list[str] = [
+DOMAIN_COMPONENT_KEYWORDS: list[str] = [
     # 通用化合物
     "compound",
     "compounds",
