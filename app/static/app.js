@@ -197,3 +197,212 @@ document.getElementById("askButton").addEventListener("click", askQuestion);
 document.getElementById("statsButton").addEventListener("click", loadStats);
 document.getElementById("warmupButton").addEventListener("click", warmupRetriever);
 document.getElementById("clearButton").addEventListener("click", clearResults);
+
+// ============================================================
+// Agent 任务面板
+// ============================================================
+
+let agentThreadId = null;
+let agentSource = null;
+
+function setAgentStatus(text) {
+    setText("agentStatusText", "状态：" + text);
+}
+
+function showProgress() {
+    document.getElementById("agentProgressBar").style.display = "block";
+}
+
+function updateProgress(stage) {
+    const stages = document.querySelectorAll("#agentProgressStages .stage-dot");
+    stages.forEach(function(dot) {
+        const ds = dot.getAttribute("data-stage");
+        if (ds === stage) {
+            dot.classList.add("active");
+        } else if (dot.classList.contains("active") && !dot.classList.contains("completed")) {
+            dot.classList.remove("active");
+            dot.classList.add("completed");
+        }
+    });
+}
+
+function showAgentButtons(type) {
+    document.getElementById("agentRunButton").style.display = type === "run" ? "inline-block" : "none";
+    document.getElementById("agentApproveButton").style.display = type === "approve" ? "inline-block" : "none";
+    document.getElementById("agentRejectButton").style.display = type === "approve" ? "inline-block" : "none";
+}
+
+function startAgent() {
+    const intent = getValue("agentIntentInput");
+    const question = getValue("agentQuestionInput");
+    if (!question) {
+        setAgentStatus("请输入具体问题");
+        return;
+    }
+
+    document.getElementById("agentAnswerBox").style.display = "none";
+    document.getElementById("agentSourcesBox").style.display = "none";
+    showProgress();
+    setAgentStatus("正在规划任务...");
+    showAgentButtons("none");
+
+    // 重置进度
+    document.querySelectorAll("#agentProgressStages .stage-dot").forEach(function(d) {
+        d.classList.remove("active", "completed", "error");
+    });
+
+    const body = JSON.stringify({
+        user_intent: intent,
+        user_question: question,
+    });
+
+    agentSource = new EventSource("/agent/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body,
+    });
+
+    agentSource.addEventListener("thread", function(e) {
+        const data = JSON.parse(e.data);
+        agentThreadId = data.thread_id;
+    });
+
+    agentSource.addEventListener("node_complete", function(e) {
+        const data = JSON.parse(e.data);
+        const stage = data.stage || data.node;
+        updateProgress(stage);
+        setAgentStatus("执行中：" + stage);
+    });
+
+    agentSource.addEventListener("interrupt", function(e) {
+        const data = JSON.parse(e.data);
+        setAgentStatus("等待确认：已规划 " + (data.plan ? data.plan.length : 0) + " 个步骤");
+        showAgentButtons("approve");
+        agentSource.close();
+    });
+
+    agentSource.addEventListener("answer", function(e) {
+        const data = JSON.parse(e.data);
+        document.getElementById("agentAnswerBox").style.display = "block";
+        document.getElementById("agentAnswerBox").innerHTML = escapeHtml(data.answer || "");
+
+        if (data.sources && data.sources.length) {
+            renderAgentSources(data.sources);
+        }
+        setAgentStatus("回答完成");
+    });
+
+    agentSource.addEventListener("error", function(e) {
+        if (e.data) {
+            const data = JSON.parse(e.data);
+            setAgentStatus("错误：" + data.error);
+        }
+    });
+
+    agentSource.addEventListener("done", function() {
+        setAgentStatus("流程已完成");
+        agentSource.close();
+        agentSource = null;
+    });
+
+    // Fallback for POST via fetch + SSE
+    if (!("withCredentials" in agentSource)) {
+        agentSource.close();
+        fetchAgentViaFetch(intent, question);
+    }
+}
+
+function fetchAgentViaFetch(intent, question) {
+    fetch("/agent/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_intent: intent, user_question: question }),
+    }).then(function(response) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        function read() {
+            reader.read().then(function(result) {
+                if (result.done) {
+                    setAgentStatus("流程已完成");
+                    return;
+                }
+                const text = decoder.decode(result.value, { stream: true });
+                // Parse SSE lines
+                text.split("\n").forEach(function(line) {
+                    if (line.startsWith("event: ")) {
+                        const eventType = line.slice(7);
+                        // next line should be data
+                    }
+                });
+                read();
+            });
+        }
+        read();
+    }).catch(function(err) {
+        setAgentStatus("错误：" + err.message);
+    });
+}
+
+function approveAgent() {
+    setAgentStatus("正在执行...");
+    showAgentButtons("none");
+    agentSource = new EventSource("/agent/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ thread_id: agentThreadId, approved: true }),
+    });
+    setupResumeListeners();
+}
+
+function rejectAgent() {
+    agentSource = new EventSource("/agent/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ thread_id: agentThreadId, approved: false }),
+    });
+    setupResumeListeners();
+}
+
+function setupResumeListeners() {
+    agentSource.addEventListener("node_complete", function(e) {
+        const data = JSON.parse(e.data);
+        updateProgress(data.stage || data.node);
+    });
+
+    agentSource.addEventListener("answer", function(e) {
+        const data = JSON.parse(e.data);
+        document.getElementById("agentAnswerBox").style.display = "block";
+        document.getElementById("agentAnswerBox").innerHTML = escapeHtml(data.answer || "");
+        if (data.sources) renderAgentSources(data.sources);
+    });
+
+    agentSource.addEventListener("done", function() {
+        setAgentStatus("流程已完成");
+        agentSource.close();
+        agentSource = null;
+    });
+}
+
+function renderAgentSources(sources) {
+    const box = document.getElementById("agentSourcesBox");
+    box.style.display = "flex";
+    let html = "";
+    sources.forEach(function(s) {
+        const category = s.category === "新发现" ? "new" : "existing";
+        const badge = s.category === "新发现"
+            ? '<span class="source-badge badge-new">新发现</span>'
+            : '<span class="source-badge badge-existing">已收录</span>';
+        html += '<div class="source-card ' + category + '">' +
+            '<h3>' + escapeHtml(s.source_id || "") + '. ' + escapeHtml(s.paper_title || "") + badge + '</h3>' +
+            '<div class="source-meta">' +
+            (s.year ? '年份: ' + s.year + ' | ' : '') +
+            (s.doi ? 'DOI: ' + s.doi + ' | ' : '') +
+            (s.score ? '评分: ' + s.score.toFixed(2) : '') +
+            '</div></div>';
+    });
+    box.innerHTML = html;
+}
+
+document.getElementById("agentRunButton").addEventListener("click", startAgent);
+document.getElementById("agentApproveButton").addEventListener("click", approveAgent);
+document.getElementById("agentRejectButton").addEventListener("click", rejectAgent);

@@ -176,3 +176,102 @@ button:hover {
         padding: 14px;
     }
 }
+
+/* ============================================================
+   Agent 任务面板样式
+   ============================================================ */
+
+.agent-card {
+    border: 2px solid #2563eb;
+    background: #f0f4ff;
+}
+
+.agent-input-row {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 12px;
+}
+
+.agent-input-row > div {
+    flex: 1;
+}
+
+.progress-bar {
+    margin: 14px 0;
+}
+
+.progress-stages {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.stage-dot {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    background: #e5e7eb;
+    color: #6b7280;
+    transition: all 0.3s ease;
+}
+
+.stage-dot.active {
+    background: #2563eb;
+    color: white;
+}
+
+.stage-dot.completed {
+    background: #10b981;
+    color: white;
+}
+
+.stage-dot.error {
+    background: #ef4444;
+    color: white;
+}
+
+#agentApproveButton {
+    background: #10b981;
+}
+
+#agentApproveButton:hover {
+    background: #059669;
+}
+
+#agentRejectButton {
+    background: #ef4444;
+}
+
+#agentRejectButton:hover {
+    background: #dc2626;
+}
+
+.source-card.existing {
+    border-left-color: #10b981;
+    background: #f0fdf4;
+}
+
+.source-card.new {
+    border-left-color: #3b82f6;
+    background: #eff6ff;
+}
+
+.source-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 8px;
+}
+
+.badge-existing {
+    background: #10b981;
+    color: white;
+}
+
+.badge-new {
+    background: #3b82f6;
+    color: white;
+}

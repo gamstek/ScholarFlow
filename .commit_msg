@@ -1,0 +1,5 @@
+v1.1.0: Step 8-9 LangGraph + Agent API + Frontend
+
+- Step 8: langgraph workflow (graph.py, 17 nodes + StateGraph)
+- Step 9: SSE streaming (/agent/run, /agent/resume, /agent/status)
+- Step 9: frontend Agent panel (EventSource + progress bar)

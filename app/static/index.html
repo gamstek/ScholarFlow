@@ -17,8 +17,50 @@
         </header>
 
         <main class="main">
-            <section class="card">
-                <h2>文献智能体问答</h2>
+            <!-- Agent 任务面板 -->
+            <section class="card agent-card">
+                <h2>Agent 任务</h2>
+                <div class="agent-input-row">
+                    <div style="flex:1">
+                        <label for="agentIntentInput">研究意图</label>
+                        <input
+                            id="agentIntentInput"
+                            type="text"
+                            placeholder="例如：跟踪 HMO 质谱解析文献"
+                        />
+                    </div>
+                    <div style="flex:1">
+                        <label for="agentQuestionInput">具体问题</label>
+                        <input
+                            id="agentQuestionInput"
+                            type="text"
+                            placeholder="例如：HMO 的 LC-MS/MS 结构解析通常用哪些方法？"
+                        />
+                    </div>
+                </div>
+
+                <div class="progress-bar" id="agentProgressBar" style="display:none">
+                    <div class="progress-stages" id="agentProgressStages">
+                        <span class="stage-dot" data-stage="crawl">采集</span>
+                        <span class="stage-dot" data-stage="download">下载</span>
+                        <span class="stage-dot" data-stage="parse">解析</span>
+                        <span class="stage-dot" data-stage="chunk">切块</span>
+                        <span class="stage-dot" data-stage="index">索引</span>
+                        <span class="stage-dot" data-stage="rag_search">检索</span>
+                        <span class="stage-dot" data-stage="qa">回答</span>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button id="agentRunButton">启动 Agent 任务</button>
+                    <button id="agentApproveButton" class="secondary-button" style="display:none">确认执行</button>
+                    <button id="agentRejectButton" class="secondary-button" style="display:none">取消</button>
+                </div>
+
+                <div id="agentAnswerBox" class="answer-box" style="display:none"></div>
+                <div id="agentSourcesBox" class="sources-box" style="display:none"></div>
+                <p id="agentStatusText" class="status-text">状态：等待操作</p>
+            </section>
 
                 <label for="questionInput">问题</label>
                 <textarea

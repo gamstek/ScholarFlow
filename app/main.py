@@ -47,6 +47,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.api.pipeline_routes import router as pipeline_router
+from app.api.agent_routes import router as agent_router
 from app.rag.rag_engine import LocalRagEngine
 from app.rag.retriever import LocalChunkRetriever, evidences_to_dicts
 from app.storage.database import async_session_factory, init_db
@@ -80,6 +81,7 @@ app = FastAPI(
 )
 
 app.include_router(pipeline_router)
+app.include_router(agent_router)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
