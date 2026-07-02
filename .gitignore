@@ -1,0 +1,46 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Model and vector index cache
+data/index/
+*.index
+
+# Evaluation output
+data/eval/*_results.csv
+
+# Local model/cache
+.cache/
+
+# Data files (PDFs, embeddings, extracted text)
+data/papers/
+data/texts/
+data/index/
+data/db/
+data/spectra/
+data/compounds/
+*.pdf
+*.index
+*.faiss
+
+# Environment
+__env_*.txt
