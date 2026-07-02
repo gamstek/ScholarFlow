@@ -411,3 +411,98 @@ class SpectrumRepository:
         limit: int = 20,
     ) -> list[dict[str, Any]]:
         return []
+
+
+class ProtocolRepository:
+    """研究协议数据访问层。"""
+
+    async def create_protocol(
+        self,
+        project_name: str,
+        raw_question: str,
+        pico_json: str | None = None,
+        keywords_en: str | None = None,
+        keywords_zh: str | None = None,
+        search_query: str | None = None,
+        inclusion_criteria: str | None = None,
+        exclusion_criteria: str | None = None,
+        time_from: int | None = None,
+        time_to: int | None = None,
+        languages: str | None = None,
+        study_types: str | None = None,
+        data_sources: str | None = None,
+    ) -> int:
+        """创建研究协议，返回 protocol_id。"""
+        from app.storage.models import ResearchProtocol
+
+        async with async_session_factory() as session:
+            protocol = ResearchProtocol(
+                project_name=project_name,
+                raw_question=raw_question,
+                pico_json=pico_json,
+                keywords_en=keywords_en,
+                keywords_zh=keywords_zh,
+                search_query=search_query,
+                inclusion_criteria=inclusion_criteria,
+                exclusion_criteria=exclusion_criteria,
+                time_from=time_from,
+                time_to=time_to,
+                languages=languages,
+                study_types=study_types,
+                data_sources=data_sources,
+                status="draft",
+            )
+            session.add(protocol)
+            await session.commit()
+            return protocol.id
+
+    async def get_protocol(self, protocol_id: int) -> dict[str, Any] | None:
+        """按 ID 获取协议。"""
+        async with async_session_factory() as session:
+            result = await session.execute(
+                sa_text("SELECT * FROM research_protocols WHERE id = :id"),
+                {"id": protocol_id},
+            )
+            row = result.fetchone()
+            return dict(row._mapping) if row else None
+
+    async def list_protocols(
+        self,
+        project_name: str | None = None,
+        status: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """列出协议。"""
+        conditions = []
+        params: dict = {"limit": limit}
+
+        if project_name:
+            conditions.append("project_name = :project")
+            params["project"] = project_name
+        if status:
+            conditions.append("status = :status")
+            params["status"] = status
+
+        where_sql = " AND ".join(conditions) if conditions else "1=1"
+        sql = f"SELECT * FROM research_protocols WHERE {where_sql} ORDER BY created_at DESC LIMIT :limit"
+
+        async with async_session_factory() as session:
+            result = await session.execute(sa_text(sql), params)
+            return [dict(row._mapping) for row in result.fetchall()]
+
+    async def approve_protocol(self, protocol_id: int, approved_by: str = "system") -> bool:
+        """批准协议。"""
+        async with async_session_factory() as session:
+            result = await session.execute(
+                sa_text("""
+                    UPDATE research_protocols
+                    SET status = 'approved',
+                        approved_at = CURRENT_TIMESTAMP,
+                        approved_by = :approved_by,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :id
+                """),
+                {"id": protocol_id, "approved_by": approved_by},
+            )
+            await session.commit()
+            return result.rowcount > 0

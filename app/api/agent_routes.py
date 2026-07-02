@@ -212,3 +212,86 @@ def _summarize_node(node_name: str, data: dict[str, Any]) -> dict[str, Any]:
     if node_name == "node_rag_ask":
         return {"answer_preview": (data.get("answer", "") or "")[:200]}
     return {}
+
+
+# ============================================================
+# 4. 研究协议路由 (C01)
+# ============================================================
+
+
+class CreateProtocolRequest(BaseModel):
+    """创建研究协议请求。"""
+    raw_question: str = Field(..., description="自然语言课题描述")
+    project_name: str = Field(default="默认项目", description="项目名称")
+
+
+class ApproveProtocolRequest(BaseModel):
+    """批准协议请求。"""
+    protocol_id: int = Field(..., description="协议 ID")
+    approved_by: str = Field(default="用户", description="批准人")
+
+
+@router.post("/protocol/create")
+async def create_protocol(request: CreateProtocolRequest):
+    """创建研究协议：LLM 拆解课题 → PICO + 纳排标准 → 入库。"""
+    from app.agent.protocol_agent import generate_protocol, save_protocol
+
+    try:
+        protocol_data = await generate_protocol(request.raw_question)
+        import logging
+        logging.getLogger(__name__).info("ProtocolData keys: %s", list(protocol_data.keys()))
+        logging.getLogger(__name__).info("PICO population: %s", protocol_data.get("pico", {}).get("population", "EMPTY"))
+        protocol_id = await save_protocol(
+            raw_question=request.raw_question,
+            protocol_data=protocol_data,
+            project_name=request.project_name,
+        )
+        return {
+            "protocol_id": protocol_id,
+            "status": "draft",
+            "pico": protocol_data["pico"],
+            "keywords_en": protocol_data["keywords_en"],
+            "keywords_zh": protocol_data["keywords_zh"],
+            "search_query": protocol_data["search_query"],
+            "inclusion_criteria": protocol_data["inclusion_criteria"],
+            "exclusion_criteria": protocol_data["exclusion_criteria"],
+            "time_from": protocol_data["time_from"],
+            "time_to": protocol_data["time_to"],
+            "study_types": protocol_data["study_types"],
+            "data_sources": protocol_data["data_sources"],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/protocol/{protocol_id}")
+async def get_protocol(protocol_id: int):
+    """查询单个协议。"""
+    from app.storage.repositories import ProtocolRepository
+
+    repo = ProtocolRepository()
+    protocol = await repo.get_protocol(protocol_id)
+    if not protocol:
+        raise HTTPException(status_code=404, detail="协议不存在")
+    return protocol
+
+
+@router.get("/protocols")
+async def list_protocols(status: str | None = None, project: str | None = None):
+    """列出协议列表。"""
+    from app.storage.repositories import ProtocolRepository
+
+    repo = ProtocolRepository()
+    return await repo.list_protocols(project_name=project, status=status)
+
+
+@router.post("/protocol/approve")
+async def approve_protocol(request: ApproveProtocolRequest):
+    """批准协议（人工审批门）。"""
+    from app.storage.repositories import ProtocolRepository
+
+    repo = ProtocolRepository()
+    ok = await repo.approve_protocol(request.protocol_id, request.approved_by)
+    if not ok:
+        raise HTTPException(status_code=404, detail="协议不存在")
+    return {"status": "approved", "protocol_id": request.protocol_id}

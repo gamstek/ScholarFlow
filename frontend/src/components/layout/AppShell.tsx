@@ -1,42 +1,72 @@
-import { AgentPanel } from '../agent/AgentPanel';
-import { PaperList } from '../papers/PaperList';
+import { useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { TopBar } from './TopBar';
+import { SideNav } from './SideNav';
+import { RightPanel } from './RightPanel';
+import { BottomBar } from './BottomBar';
+import { ProtocolPage } from '../../pages/ProtocolPage';
+import { DiscoveryPage } from '../../pages/DiscoveryPage';
+import { ScreeningPage } from '../../pages/ScreeningPage';
+import { ReadingPage } from '../../pages/ReadingPage';
+import { EvidenceGraphPage } from '../../pages/EvidenceGraphPage';
+import { WritingPage } from '../../pages/WritingPage';
+import { MonitorPage } from '../../pages/MonitorPage';
+import { SettingsPage } from '../../pages/SettingsPage';
+import type { PageKey } from '../../types/nav';
 
-/** 整体页面布局：左侧 Agent 面板，右侧文献库。 */
+/** 整体页面布局：顶栏 + 左导航 + 主工作区 + 右面板 + 底栏。 */
 export function AppShell() {
+  const [activePage, setActivePage] = useState<PageKey>('discovery');
+  const queryClient = useQueryClient();
+
+  const handleRefresh = useCallback(() => {
+    queryClient.invalidateQueries();
+  }, [queryClient]);
+
+  const renderPage = () => {
+    switch (activePage) {
+      case 'protocol':
+        return <ProtocolPage />;
+      case 'discovery':
+        return <DiscoveryPage />;
+      case 'screening':
+        return <ScreeningPage />;
+      case 'reading':
+        return <ReadingPage />;
+      case 'graph':
+        return <EvidenceGraphPage />;
+      case 'writing':
+        return <WritingPage />;
+      case 'monitor':
+        return <MonitorPage />;
+      case 'settings':
+        return <SettingsPage />;
+      default:
+        return <DiscoveryPage />;
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* 顶部标题 */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              ScholarFlow
-            </h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              文献采集与检索智能体 v1.1.0
-            </p>
-          </div>
-          <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
-            LangGraph + SSE
-          </span>
-        </div>
-      </header>
+    <div className="flex flex-col h-screen bg-slate-50 overflow-hidden">
+      {/* 顶栏 */}
+      <TopBar onRefresh={handleRefresh} />
 
-      {/* 主内容 */}
-      <main className="max-w-7xl mx-auto px-6 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* 左栏：Agent */}
-          <div>
-            <AgentPanel />
-          </div>
+      {/* 主区域 */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* 左侧导航 */}
+        <SideNav activePage={activePage} onPageChange={setActivePage} />
 
-          {/* 右栏：文献库 */}
-          <div className="bg-white rounded-xl p-6 shadow-sm">
-            <h2 className="text-lg font-bold text-gray-700 mb-4">文献库</h2>
-            <PaperList />
-          </div>
-        </div>
-      </main>
+        {/* 主工作区 */}
+        <main className="flex-1 overflow-y-auto">
+          {renderPage()}
+        </main>
+
+        {/* 右侧面板 */}
+        <RightPanel />
+      </div>
+
+      {/* 底栏 */}
+      <BottomBar />
     </div>
   );
 }

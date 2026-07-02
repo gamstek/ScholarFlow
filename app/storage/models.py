@@ -52,6 +52,54 @@ class CrawlTask(Base):
     papers = relationship("Paper", back_populates="crawl_task")
 
 
+class ResearchProtocol(Base):
+    """研究协议表 — C01 研究问题建模与项目协议。
+
+    将自然语言课题分解为结构化 PICO 框架 + 纳排标准。
+    协议是后续检索、筛选、综合和更新的共同约束。
+    """
+
+    __tablename__ = "research_protocols"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # 关联项目
+    project_name = Column(String(200), nullable=False, default="默认项目")
+
+    # 用户原始输入
+    raw_question = Column(Text, nullable=False)
+
+    # PICO 框架（JSON）
+    pico_json = Column(Text, nullable=True)
+    # {"population": "...", "intervention": "...", "comparison": "...", "outcome": "..."}
+
+    # 检索协议
+    keywords_en = Column(Text, nullable=True)   # 英文关键词，换行分隔
+    keywords_zh = Column(Text, nullable=True)   # 中文关键词，换行分隔
+    search_query = Column(Text, nullable=True)  # 推荐的布尔检索式
+
+    # 纳入/排除标准（JSON 数组）
+    inclusion_criteria = Column(Text, nullable=True)  # JSON: [{criterion, rationale}]
+    exclusion_criteria = Column(Text, nullable=True)  # JSON: [{criterion, rationale}]
+
+    # 文献范围
+    time_from = Column(Integer, nullable=True)
+    time_to = Column(Integer, nullable=True)
+    languages = Column(String(200), nullable=True)       # 逗号分隔
+    study_types = Column(Text, nullable=True)             # JSON 数组
+    data_sources = Column(Text, nullable=True)            # JSON 数组
+
+    # 状态与控制
+    status = Column(String(20), nullable=False, default="draft", index=True)
+    # draft → pending_approval → approved → archived
+    version = Column(Integer, nullable=False, default=1)
+    approved_at = Column(DateTime, nullable=True)
+    approved_by = Column(String(100), nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class Paper(Base):
     """文献表。"""
 

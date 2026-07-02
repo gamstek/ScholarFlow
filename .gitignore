@@ -48,3 +48,6 @@ __env_*.txt
 # Node
 frontend/node_modules/
 frontend/dist/
+
+# Docs
+*.docx

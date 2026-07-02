@@ -1,3 +1,125 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ===== 自定义全局样式 ===== */
+
+/* 平滑滚动 */
+html {
+  scroll-behavior: smooth;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* border-3 工具类 */
+.border-3 {
+  border-width: 3px;
+}
+
+/* Markdown 渲染样式 */
+.prose-sm p {
+  margin: 0.5em 0;
+}
+
+.prose-sm ul,
+.prose-sm ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.prose-sm ul {
+  list-style-type: disc;
+}
+
+.prose-sm ol {
+  list-style-type: decimal;
+}
+
+.prose-sm code {
+  background: #f1f5f9;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.875em;
+}
+
+.prose-sm pre {
+  background: #f8fafc;
+  padding: 0.75em;
+  border-radius: 6px;
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+}
+
+.prose-sm pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.prose-sm strong {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.prose-sm h1,
+.prose-sm h2,
+.prose-sm h3 {
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0.75em 0 0.25em;
+}
+
+.prose-sm h1 { font-size: 1.25em; }
+.prose-sm h2 { font-size: 1.1em; }
+.prose-sm h3 { font-size: 1em; }
+
+/* 表格样式 */
+.prose-sm table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875em;
+}
+
+.prose-sm th,
+.prose-sm td {
+  border: 1px solid #e2e8f0;
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+
+.prose-sm th {
+  background: #f8fafc;
+  font-weight: 600;
+}
+
+/* 动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}

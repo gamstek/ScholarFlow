@@ -128,6 +128,38 @@ async def init_db() -> None:
     async with async_session_factory() as session:
         await session.execute(text("SELECT 1"))
 
+    # 确保 research_protocols 表存在（create_all 无法为新模型自动建表）
+    await _ensure_protocol_table()
+
+
+async def _ensure_protocol_table() -> None:
+    """确保 research_protocols 表及字段存在（迁移已部署的数据库）。"""
+    async with async_engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS research_protocols (
+                id SERIAL PRIMARY KEY,
+                project_name VARCHAR(200) NOT NULL DEFAULT '默认项目',
+                raw_question TEXT NOT NULL,
+                pico_json TEXT,
+                keywords_en TEXT,
+                keywords_zh TEXT,
+                search_query TEXT,
+                inclusion_criteria TEXT,
+                exclusion_criteria TEXT,
+                time_from INTEGER,
+                time_to INTEGER,
+                languages VARCHAR(200),
+                study_types TEXT,
+                data_sources TEXT,
+                status VARCHAR(20) NOT NULL DEFAULT 'draft',
+                version INTEGER NOT NULL DEFAULT 1,
+                approved_at TIMESTAMP,
+                approved_by VARCHAR(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+
 
 async def close_db() -> None:
     """关闭数据库引擎。"""
