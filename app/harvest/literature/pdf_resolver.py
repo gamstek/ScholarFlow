@@ -19,6 +19,7 @@ pdf_resolver.py
 from __future__ import annotations
 
 import shutil
+import ssl
 import tempfile
 import time
 import urllib.error
@@ -130,6 +131,11 @@ class OpenAccessPdfResolver:
         self.min_pdf_size_bytes = min_pdf_size_bytes
 
         self.paper_repo = PaperRepository()
+
+        # 创建不验证证书的 SSL 上下文（解决 Windows 证书链问题）
+        self._ssl_context = ssl.create_default_context()
+        self._ssl_context.check_hostname = False
+        self._ssl_context.verify_mode = ssl.CERT_NONE
 
     async def list_candidate_papers(
         self,
@@ -394,6 +400,7 @@ class OpenAccessPdfResolver:
                 with urllib.request.urlopen(
                     request,
                     timeout=self.timeout,
+                    context=self._ssl_context,
                 ) as response:
                     status_code = response.status
 

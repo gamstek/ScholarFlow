@@ -26,8 +26,6 @@ from app.services.pipeline_service import (
     build_chunks_service,
     build_faiss_index_service,
     crawl_literature_service,
-    crawl_nature_service,
-    crawl_science_service,
     download_open_access_pdfs_service,
     parse_downloaded_pdfs_service,
 )
@@ -41,7 +39,7 @@ router = APIRouter(
 
 class CrawlLiteratureRequest(BaseModel):
     """
-    文献采集请求。
+    文献采集请求（统一入口，支持多数据源）。
     """
 
     query: str = Field(
@@ -50,6 +48,14 @@ class CrawlLiteratureRequest(BaseModel):
         examples=["human milk oligosaccharides LC-MS/MS structural elucidation"],
     )
 
+    source: str = Field(
+        "europe_pmc",
+        description=(
+            "数据源。可选："
+            "europe_pmc / nature / science / cell / arxiv / semantic_scholar"
+        ),
+    )
+
     max_results: int = Field(
         20,
         ge=1,
@@ -58,65 +64,15 @@ class CrawlLiteratureRequest(BaseModel):
     )
 
     min_domain_score: float = Field(
-        0.40,
+        0.25,
         ge=0.0,
         le=1.0,
-        description="最低领域相关性评分。",
+        description="最低语义相似度阈值（查询与文献的 embedding 余弦相似度）。",
     )
 
     enhance_query: bool = Field(
         True,
-        description="是否自动增强领域相关检索词。",
-    )
-
-
-class CrawlNatureRequest(BaseModel):
-    """
-    Nature 系列期刊文献采集请求。
-    """
-
-    query: str = Field(
-        ...,
-        description="检索主题。",
-    )
-
-    max_results: int = Field(
-        20,
-        ge=1,
-        le=200,
-        description="最大检索数量。",
-    )
-
-    min_domain_score: float = Field(
-        0.40,
-        ge=0.0,
-        le=1.0,
-        description="最低领域相关性评分。",
-    )
-
-
-class CrawlScienceRequest(BaseModel):
-    """
-    Science 系列期刊文献采集请求。
-    """
-
-    query: str = Field(
-        ...,
-        description="检索主题。",
-    )
-
-    max_results: int = Field(
-        20,
-        ge=1,
-        le=200,
-        description="最大检索数量。",
-    )
-
-    min_domain_score: float = Field(
-        0.40,
-        ge=0.0,
-        le=1.0,
-        description="最低领域相关性评分。",
+        description="是否自动增强领域相关检索词（仅 europe_pmc 生效）。",
     )
 
 
@@ -235,7 +191,7 @@ class BuildFaissIndexRequest(BaseModel):
     )
 
     model_name: str = Field(
-        "C:/Users/Admin/.cache/huggingface/hub/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181",
+        "BAAI/bge-m3",
         description="embedding 模型名称或本地路径。",
     )
 
@@ -255,56 +211,23 @@ async def crawl_literature(
     request: CrawlLiteratureRequest,
 ) -> dict:
     """
-    采集文献 metadata（Europe PMC 全库）。
+    采集文献 metadata（支持多数据源，自动去重排序）。
+
+    支持的数据源：
+        - europe_pmc:       Europe PMC（通用生物医学）
+        - nature:           Nature 系列期刊
+        - science:          Science 系列期刊
+        - cell:             Cell Press 系列期刊
+        - arxiv:            arXiv 预印本
+        - semantic_scholar: Semantic Scholar（通用学术搜索）
     """
     try:
         return await crawl_literature_service(
             query=request.query,
+            sources=request.sources,
             max_results=request.max_results,
             min_domain_score=request.min_domain_score,
             enhance_query=request.enhance_query,
-        )
-
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=str(exc),
-        ) from exc
-
-
-@router.post("/crawl-nature")
-async def crawl_nature(
-    request: CrawlNatureRequest,
-) -> dict:
-    """
-    采集 Nature 系列期刊文献 metadata。
-    """
-    try:
-        return await crawl_nature_service(
-            query=request.query,
-            max_results=request.max_results,
-            min_domain_score=request.min_domain_score,
-        )
-
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=str(exc),
-        ) from exc
-
-
-@router.post("/crawl-science")
-async def crawl_science(
-    request: CrawlScienceRequest,
-) -> dict:
-    """
-    采集 Science 系列期刊文献 metadata。
-    """
-    try:
-        return await crawl_science_service(
-            query=request.query,
-            max_results=request.max_results,
-            min_domain_score=request.min_domain_score,
         )
 
     except Exception as exc:

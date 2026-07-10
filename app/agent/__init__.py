@@ -1,21 +1,5 @@
 """
-app.agent
+app/agent
 
-Agent 基础设施包。
-
-导出：
-- Tool, ToolResult: Tool 抽象基类与结果模型
-- ToolRegistry: Tool 注册中心
-- Agent: Agent 基类
-- ReActLoop: ReAct 循环执行器
+LangChain Agent 层 — 关键词提取、Tool 定义、ReAct Agent。
 """
-
-from app.agent.base import Agent, ReActLoop, Tool, ToolRegistry, ToolResult
-
-__all__ = [
-    "Tool",
-    "ToolResult",
-    "ToolRegistry",
-    "Agent",
-    "ReActLoop",
-]

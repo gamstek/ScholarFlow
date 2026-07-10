@@ -25,6 +25,7 @@ embedder.py
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -67,12 +68,8 @@ class TextEmbedder:
             向量化用户问题。
     """
 
-    # 本地 BGE-M3 模型路径（避免每次从 HuggingFace Hub 下载）
-    _LOCAL_BGE_M3_PATH = (
-        "C:/Users/Admin/.cache/huggingface/hub/"
-        "models--BAAI--bge-m3/snapshots/"
-        "5617a9f61b028005a4858fdac845db406aefb181"
-    )
+    # BGE-M3 模型名（sentence-transformers 自动从 HuggingFace 缓存加载）
+    _LOCAL_BGE_M3_PATH = "BAAI/bge-m3"
 
     def __init__(
         self,
@@ -110,13 +107,20 @@ class TextEmbedder:
                 "pip install sentence-transformers"
             ) from exc
 
+        # HF_HUB_OFFLINE=1 时强制从本地缓存加载，不联网验证
+        _local_only = os.getenv("HF_HUB_OFFLINE") == "1"
+
         if device:
             self.model = SentenceTransformer(
                 model_name,
                 device=device,
+                local_files_only=_local_only,
             )
         else:
-            self.model = SentenceTransformer(model_name)
+            self.model = SentenceTransformer(
+                model_name,
+                local_files_only=_local_only,
+            )
 
         self.dimension = self._infer_dimension()
 

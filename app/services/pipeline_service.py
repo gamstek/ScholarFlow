@@ -18,12 +18,12 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncGenerator
 
 from app.document.chunker import SectionBasedChunker
 from app.document.pdf_parser import PdfParser
 from app.document.section_parser import parse_sections_from_pages, sections_to_dicts
-from app.harvest.harvester import LiteratureHarvester, report_to_dict
+from app.harvest.harvester import LiteratureHarvester, report_to_dict, search_report_to_dict
 from app.harvest.literature.pdf_resolver import OpenAccessPdfResolver
 from app.rag.embedder import TextEmbedder
 from app.rag.vector_store import FaissVectorStore
@@ -46,19 +46,28 @@ from sqlalchemy import text as sa_text, bindparam
 
 async def crawl_literature_service(
     query: str,
+    sources: list[str] | None = None,
     max_results: int = 20,
-    min_domain_score: float = 0.40,
+    min_domain_score: float = 0.25,
     enhance_query: bool = True,
 ) -> dict[str, Any]:
     """
-    从 Europe PMC 采集文献 metadata，并写入数据库。
+    从指定数据源采集文献 metadata，并写入数据库。
+
+    参数：
+        sources: 数据源列表，如 ["europe_pmc", "arxiv"]。
+            支持：europe_pmc / nature / science / cell / arxiv / semantic_scholar
     """
+    if sources is None:
+        sources = ["europe_pmc"]
+
     harvester = LiteratureHarvester(
         min_domain_score=min_domain_score,
     )
 
-    report = await harvester.crawl_from_europe_pmc(
+    report = await harvester.crawl(
         query=query,
+        sources=sources,
         max_results=max_results,
         enhance_query=enhance_query,
     )
@@ -66,44 +75,143 @@ async def crawl_literature_service(
     return report_to_dict(report)
 
 
-async def crawl_nature_service(
+# ============================================================
+# 1b. 仅检索不入库
+# ============================================================
+
+async def search_papers_service(
     query: str,
+    sources: list[str] | None = None,
     max_results: int = 20,
-    min_domain_score: float = 0.40,
+    enhance_query: bool = True,
+    keywords: list[str] | None = None,
+    domain: str | None = None,
+    sort_by: str = "relevance",
+    sort_order: str = "desc",
 ) -> dict[str, Any]:
     """
-    从 Nature 系列期刊采集文献 metadata，并写入数据库。
+    仅检索 + 评分 + 在库检查，不写入数据库。
+
+    参数：
+        query: 检索词（如已通过 LLM 提取，则为关键词拼接）。
+        sources: 数据源列表。
+        max_results: 每源最大检索数。
+        enhance_query: 是否增强检索（仅 europe_pmc）。
+        keywords: LLM 提取的关键词（透传给前端展示）。
+        domain: LLM 提取的领域标签。
+        sort_by: 排序方式（relevance / year / citations）。
+        sort_order: 排序顺序（asc / desc）。
     """
-    harvester = LiteratureHarvester(
-        min_domain_score=min_domain_score,
-    )
+    if sources is None:
+        sources = ["europe_pmc"]
 
-    report = await harvester.crawl_from_nature(
+    harvester = LiteratureHarvester()
+
+    report = await harvester.search_only(
         query=query,
+        sources=sources,
         max_results=max_results,
+        enhance_query=enhance_query,
+        keywords=keywords,
+        domain=domain,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
 
-    return report_to_dict(report)
+    return search_report_to_dict(report)
 
 
-async def crawl_science_service(
+# ============================================================
+# 1b-stream. 流式检索（SSE）
+# ============================================================
+
+async def search_papers_stream_service(
     query: str,
+    sources: list[str] | None = None,
     max_results: int = 20,
-    min_domain_score: float = 0.40,
+    enhance_query: bool = True,
+    keywords: list[str] | None = None,
+    domain: str | None = None,
+    sort_by: str = "relevance",
+    sort_order: str = "desc",
+) -> AsyncGenerator[str, None]:
+    """
+    流式检索：通过 SSE 逐源推送进度，最后推送完整结果。
+    """
+    if sources is None:
+        sources = ["europe_pmc"]
+
+    harvester = LiteratureHarvester()
+
+    async for event in harvester.search_only_stream(
+        query=query,
+        sources=sources,
+        max_results=max_results,
+        enhance_query=enhance_query,
+        keywords=keywords,
+        domain=domain,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    ):
+        yield event
+
+
+# ============================================================
+# 1c. 单篇论文入库
+# ============================================================
+
+async def import_single_paper_service(
+    title: str,
+    abstract: str | None = None,
+    authors: list[str] | None = None,
+    year: int | None = None,
+    journal: str | None = None,
+    doi: str | None = None,
+    pmid: str | None = None,
+    pmcid: str | None = None,
+    source: str = "manual_import",
+    url: str | None = None,
+    pdf_url: str | None = None,
+    license: str | None = None,
+    is_open_access: int = 0,
+    domain_score: float = 0.0,
 ) -> dict[str, Any]:
     """
-    从 Science 系列期刊采集文献 metadata，并写入数据库。
+    单篇论文入库（metadata），返回 paper_id。
+
+    入库后可通过 POST /papers/{id}/process 触发完整流水线。
     """
-    harvester = LiteratureHarvester(
-        min_domain_score=min_domain_score,
+    await init_db()
+
+    paper_repo = PaperRepository()
+
+    paper_id = await paper_repo.upsert_paper(
+        title=title,
+        abstract=abstract,
+        authors=authors,
+        year=year,
+        journal=journal,
+        doi=doi,
+        pmid=pmid,
+        pmcid=pmcid,
+        crossref_id=None,
+        source=source,
+        url=url,
+        pdf_url=pdf_url,
+        license=license,
+        is_open_access=is_open_access,
+        domain_score=domain_score,
+        status="metadata_only",
+        crawl_task_id=None,
     )
 
-    report = await harvester.crawl_from_science(
-        query=query,
-        max_results=max_results,
-    )
-
-    return report_to_dict(report)
+    return {
+        "paper_id": paper_id,
+        "title": title,
+        "doi": doi,
+        "status": "metadata_only",
+        "message": "论文 metadata 已入库。可调用 /papers/{id}/process 触发完整流水线。",
+    }
 
 
 # ============================================================
@@ -831,7 +939,7 @@ async def update_papers_as_indexed_for_chunks(
 async def build_faiss_index_service(
     limit: int = 100,
     batch_size: int = 4,
-    model_name: str = "C:/Users/Admin/.cache/huggingface/hub/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181",
+    model_name: str = "BAAI/bge-m3",
     device: str | None = None,
     rebuild: bool = False,
 ) -> dict[str, Any]:

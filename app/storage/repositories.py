@@ -139,6 +139,7 @@ class PaperRepository:
         pdf_url: Optional[str] = None,
         license: Optional[str] = None,
         is_open_access: int = 0,
+        citation_count: Optional[int] = None,
         domain_score: float = 0.0,
         status: str = "metadata_only",
         crawl_task_id: Optional[int] = None,
@@ -172,6 +173,7 @@ class PaperRepository:
                     "pdf_url": pdf_url or existing.pdf_url,
                     "license": license or existing.license,
                     "is_open_access": max(is_open_access, existing.is_open_access),
+                    "citation_count": citation_count if citation_count is not None else existing.citation_count,
                     "domain_score": max(domain_score, existing.domain_score),
                     "crawl_task_id": crawl_task_id or existing.crawl_task_id,
                 }
@@ -205,6 +207,7 @@ class PaperRepository:
                     pdf_url=pdf_url,
                     license=license,
                     is_open_access=is_open_access,
+                    citation_count=citation_count,
                     domain_score=domain_score,
                     status=status,
                     crawl_task_id=crawl_task_id,
@@ -263,6 +266,30 @@ class PaperRepository:
             row = result.scalar_one_or_none()
             return _row_to_dict(row) if row else None
 
+    async def update_pipeline_progress(
+        self,
+        paper_id: int,
+        step: Optional[str] = None,
+        error: Optional[str] = None,
+        clear_error: bool = False,
+    ) -> None:
+        """更新论文处理流水线进度。"""
+        async with async_session_factory() as session:
+            values: dict[str, Any] = {}
+            if step is not None:
+                values["pipeline_step"] = step
+            if error is not None:
+                values["pipeline_error"] = error[:500]
+            if clear_error:
+                values["pipeline_error"] = None
+
+            if not values:
+                return
+
+            stmt = update(Paper).where(Paper.id == paper_id).values(**values)
+            await session.execute(stmt)
+            await session.commit()
+
     async def list_papers(
         self,
         limit: int = 20,
@@ -299,6 +326,19 @@ class PaperRepository:
                 stmt = update(Paper).where(Paper.id == paper_id).values(**values)
                 await session.execute(stmt)
                 await session.commit()
+
+    async def delete_paper(self, paper_id: int) -> bool:
+        """删除文献记录及关联的 chunks（数据库级联删除）。"""
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(Paper).where(Paper.id == paper_id)
+            )
+            paper = result.scalar_one_or_none()
+            if paper is None:
+                return False
+            await session.delete(paper)
+            await session.commit()
+            return True
 
 
 # ============================================================
@@ -489,6 +529,62 @@ class ProtocolRepository:
         async with async_session_factory() as session:
             result = await session.execute(sa_text(sql), params)
             return [dict(row._mapping) for row in result.fetchall()]
+
+    async def update_protocol(
+        self,
+        protocol_id: int,
+        pico_json: str | None = None,
+        keywords_en: str | None = None,
+        keywords_zh: str | None = None,
+        search_query: str | None = None,
+        inclusion_criteria: str | None = None,
+        exclusion_criteria: str | None = None,
+        time_from: int | None = None,
+        time_to: int | None = None,
+        study_types: str | None = None,
+        data_sources: str | None = None,
+    ) -> bool:
+        """更新协议字段（仅更新传入的非 None 字段）。协议更新后版本号 +1，状态回退为 draft。"""
+        from app.storage.models import ResearchProtocol
+
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(ResearchProtocol).where(ResearchProtocol.id == protocol_id)
+            )
+            protocol = result.scalar_one_or_none()
+            if not protocol:
+                return False
+
+            # 仅更新传入的字段
+            if pico_json is not None:
+                protocol.pico_json = pico_json
+            if keywords_en is not None:
+                protocol.keywords_en = keywords_en
+            if keywords_zh is not None:
+                protocol.keywords_zh = keywords_zh
+            if search_query is not None:
+                protocol.search_query = search_query
+            if inclusion_criteria is not None:
+                protocol.inclusion_criteria = inclusion_criteria
+            if exclusion_criteria is not None:
+                protocol.exclusion_criteria = exclusion_criteria
+            if time_from is not None:
+                protocol.time_from = time_from
+            if time_to is not None:
+                protocol.time_to = time_to
+            if study_types is not None:
+                protocol.study_types = study_types
+            if data_sources is not None:
+                protocol.data_sources = data_sources
+
+            # 版本 +1，状态重置
+            protocol.version = (protocol.version or 1) + 1
+            protocol.status = "draft"
+            protocol.approved_at = None
+            protocol.approved_by = None
+
+            await session.commit()
+            return True
 
     async def approve_protocol(self, protocol_id: int, approved_by: str = "system") -> bool:
         """批准协议。"""

@@ -127,8 +127,11 @@ class Paper(Base):
     local_text_path = Column(Text, nullable=True)
     license = Column(String(500), nullable=True)
     is_open_access = Column(Integer, nullable=False, default=0)
+    citation_count = Column(Integer, nullable=True)
     domain_score = Column(Float, default=0.0, index=True)
     status = Column(String(30), nullable=False, default="metadata_only")
+    pipeline_step = Column(String(50), nullable=True)       # 当前处理步骤
+    pipeline_error = Column(Text, nullable=True)             # 最近错误信息
     crawl_task_id = Column(Integer, ForeignKey("crawl_tasks.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

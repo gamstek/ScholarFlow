@@ -22,6 +22,167 @@
 
 ## 开发时间线
 
+### 2026-07-10
+
+代码生成(harvester+frontend): 检索结果增加按时间/引用量排序 + SSE 流式检索进度显示
+
+- 后端 `PaperMetadata` / `SearchHit` / `Paper` 模型增加 `citation_count` 字段。
+- 新增 `parse_citation_count()` 共享解析函数，Europe PMC / Nature / Science / Cell 四个源统一解析 `citedByCount`（均经 Europe PMC 底层 API）。
+- Semantic Scholar 增加 `citationCount` 到请求字段并解析。
+- `search_only` 新增 `sort_by` 和 `sort_order` 参数。
+- 新增 `search_only_stream` 异步生成器 + `POST /search/stream` SSE 端点。
+- 前端新增排序按钮组 + 进度条 + 客户端重排。
+
+性能优化(harvester): 多源并行查询 + embedding 预热 + GPU 加速
+
+- `search_only` / `search_only_stream` 的源采集从串行 `for` 改为 `asyncio.gather` + `asyncio.to_thread` 并行。
+- `search_only_stream` 用 `asyncio.as_completed` 确保先完成的源先推送进度。
+- FastAPI `lifespan` 启动时预热 BGE-M3 embedding 模型，首次搜索省 10s。
+- BGE-M3 批量编码 60 篇仅 0.11s（RTX 4060 GPU）。
+
+代码生成(frontend): 论文卡片点击查看元数据 + 摘要翻译
+
+- 检索结果卡片可点击，弹出模态框展示标题/作者/年份/期刊/DOI/来源/摘要。
+- 英文摘要自动调用 `/translate` API 翻译为中文（支持 deepseek 和 Ollama）。
+- 模态框点击遮罩层或 X 按钮关闭，卡片内按钮 `stopPropagation` 防误触。
+
+代码生成(agent): Agent 支持云端 API (deepseek)
+
+- `get_agent()` 读取 `LLM_BACKEND` 环境变量，`deepseek` → `ChatOpenAI`（兼容 DeepSeek API），`ollama` → `ChatOllama`。
+- 解决 Agent 始终使用 Ollama 而忽略 `.env` 配置的问题。
+
+代码生成(agent): 新增 list_library 工具 + 会话持久化
+
+- 新增 `list_library` Tool，直接查询本地数据库返回已入库文献列表。
+- `SessionManager` 增加文件持久化（`data/sessions.json`），服务重启不丢失对话。
+- Agent 系统提示词更新，引导优先使用 `list_library` 查本地库。
+
+修复(startup): start.bat 双击闪退
+
+- `start.bat` 换行符为 LF（Unix）导致 cmd.exe 解析含括号块的 `if` 语句崩溃，转为 CRLF。
+
+修复(frontend): 检索进度条和排序按钮不显示
+
+- 进度条和排序按钮被嵌套在 `{result && (...)}` 条件块内，检索开始时 `result=null` 不渲染 → 移到外部。
+
+修复(frontend): Agent 历史对话点击白屏
+
+- 会话 `tool_calls[].input` 为 JSON 对象时 React 直接渲染报 Error #31 → 序列化为字符串。
+
+修复(frontend): 关闭网页后再打开检索结果丢失
+
+- SearchPage 增加 `localStorage` 持久化，保存/恢复检索结果和排序参数。
+
+修复(frontend): 左下角模型显示与实际不同步
+
+- `/health` 端点硬编码 Ollama → 改为读取 `LLM_BACKEND`，deepseek 显示 `deepseek-chat`。
+
+修复(backend): Agent 调用 search_papers 时 event loop 冲突
+
+- `async_engine` 连接池绑定 uvicorn 循环，`asyncio.run()` 新建循环冲突 → 池改为 `NullPool`。
+
+修复(frontend): 前端白屏（index.html 缓存）
+
+- `FileResponse` 无 cache header，浏览器缓存旧 HTML 引用已删除的 JS → 加 `Cache-Control: no-cache`。
+
+修复(startup): 启动时打开两个浏览器标签
+
+- `main.py` 和 `start.bat` 各开一个 → 删除 `main.py` 中的 `webbrowser.open`。
+
+重构(frontend): 暂时隐藏引用量排序
+
+- 前端排序选项去掉"引用量"和"被引 X 次"显示，后端数据采集保留不动。
+
+调试(arxiv): arXiv 连接问题排查
+
+- SSL 证书链、频率限制、网络环境均正常。`CERT_NONE` 绕过已多余。
+
+其他(data): 清洗 data/ 目录
+
+- 删除孤立 text 文件（无对应 DB 记录）、诊断 JSON、空目录（compounds/db/pdfs/spectra/test）。
+
+### 2026-07-09
+
+需求分析(依赖管理): RTX 30/40/50 系列 GPU 多架构依赖分拆
+
+- 根因：不同 GPU 架构的 CUDA compute capability 不同——30 系 (SM 8.6, CUDA 11.x/12.1)、40 系 (SM 8.9, CUDA 12.4)、50 系 (SM 12.0, 必须 CUDA ≥12.8)。单一 `requirements.txt` 硬编码 `torch==2.11.0+cu128` 仅适用 50 系。
+- 新建 `requirements-rtx30.txt`（CUDA 12.1, torch 2.5.1+cu121）、`requirements-rtx40.txt`（CUDA 12.4, torch 2.5.1+cu124）、`requirements-rtx50.txt`（CUDA 12.8, torch 2.11.0+cu128），统一放入 `requirements/` 文件夹。
+- 三个文件除 PyTorch CUDA build 外，其余依赖完全一致（FAISS 统一用 CPU 版，避免跨 CUDA 版本冲突）。
+- 主 `requirements.txt` 移入 `requirements/` 文件夹，新增 GPU 选择指南注释 + 保留 RTX 50 系内容（当前开发机）。
+- 新建 `install_deps.bat` 智能安装脚本：nvidia-smi 自动检测 GPU 型号 → 匹配 compute capability → 选择对应依赖文件 → pip 安装 → torch.cuda.is_available() 验证。
+- 覆盖型号名检测（RTX 50/40/30 关键字匹配）+ compute capability 兜底（12.x → 50 系, 8.9 → 40 系, 8.6 → 30 系）+ 手动选择三级回退。
+- 兼容 conda 环境和系统 Python，自动识别当前激活的 conda env 并透传 pip install。
+- 结果：项目依赖从单一 RTX 50 扩展至全系列 30/40/50 GPU，安装即匹配。
+
+其他(Skill): 新增 code-change-logger 代码修改记录技能
+
+- 创建 `.github/skills/code-change-logger/SKILL.md`，定义自动触发的代码改动记录工作流。
+- 每次编辑工具调用后自动询问改动人，记录时间（YY-MM-DD）、类型（新增/删除/调整/重构/修复/优化）、说明（文件:行号+联动）、内容（精简说明）、理由到 `docs/Modified.md`。
+- 创建 `docs/Modified.md` 初始模板，按日期分组、当日内编号递增。
+- 与 `dev-log-writer` 互补：`dev_log.md` 记录任务级功能，`docs/Modified.md` 记录改动级代码细节。
+- 来源：用户要求创建自动化代码改动追踪 skill。
+
+### 2026-07-08
+
+调试(启动优化): HF_HUB_OFFLINE + IPv6 + local_files_only 三连修复
+
+- 根因：sentence-transformers 每次加载 BGE-M3 前向 HF Hub 发 10+ HEAD 请求验证缓存，HF 不可达时超时 60-120s。
+- `.env` 新增 `HF_HUB_OFFLINE=1`；`start.bat` 同步设置；`embedder.py` 中 `SentenceTransformer()` 补充 `local_files_only=True`。
+- `DATABASE_URL` 中 `localhost` 在 WSL2 下先解析为 IPv6 `::1`，超时 5s 后才回退 IPv4 → 改为 `127.0.0.1`。
+- 启动时间从 60-120s 降至 5-10s。
+
+修复(兼容性): langchain + transformers 版本冲突
+
+- `langchain==1.3.11` 旧 API `AgentExecutor`/`create_react_agent` 已移除 → 迁移至 `create_agent`（langchain >= 1.0 API）。
+- `torch==2.5.1+cu124` < 2.6 与 `transformers==5.12.1` 冲突 → 降级 `transformers==4.48.3`。
+
+调试(环境): Docker + Python 环境修复
+
+- Docker `scholarflow-pg` 容器手动启动，端口映射 `5433→5432`（本机两个 PG 实例避免冲突）。
+- 11 处硬编码路径统一改为 `"BAAI/bge-m3"`。
+- 创建 `.env` 文件并接入 `load_dotenv()`。
+
+### 2026-07-03
+
+功能(文献库管理): 删除文献 + 查看源数据
+
+- 新增 `PaperRepository.delete_paper()` 方法，通过 ORM 删除 paper（数据库级联删除 chunks）。
+- 新增 `DELETE /papers/{paper_id}` 端点，删除数据库记录 + 本地 PDF + 本地文本文件，返回确认信息。
+- 前端 api.ts 新增 `api.deletePaper()`，Paper 类型扩展 `pmid`/`pmcid`/`source`/`url`/`pdf_url`/`license`/`created_at`/`updated_at` 等字段。
+- usePapers hook 新增 `deletePaper` mutation，删除后自动刷新 papers 和 stats 缓存。
+- LibraryPage 每条文献行新增**查看源数据**按钮（眼睛图标），点击展开 SourceDataView 组件，显示 DOI、PMID、作者、摘要、许可证等完整元数据。
+- LibraryPage 每条文献行新增**删除**按钮（垃圾桶图标），带确认对话框，确认后删除文献及本地 PDF（不可恢复）。
+- 表头 ID 列改为序号列（1, 2, 3...），数据库 ID 移至源数据视图内显示。
+- 结果：文献库支持完整的增删查管理流程，源数据一键查看。
+
+修复(前端): 刷新按钮 + ID 列显示
+
+- 刷新按钮 spinner 状态从 `isLoading` 改为 `isFetching`，解决刷新时无视觉反馈的问题。
+- 文献列表 ID 列改为按位置计算的序号，删除条目后序号自动连续。
+
+其他(启动脚本): start.bat 移除前端构建步骤
+
+- 移除 `npm install && npm run build` 步骤，启动流程从 4 步简化为 3 步。
+- 原因：Node.js/npm 安装在 Trae IDE 私有路径下，不在系统 PATH，双击 start.bat 时无法找到 npm，构建步骤形同虚设。
+- 前端已预构建在 `frontend/dist/` 中。如需修改前端代码，在 Trae IDE 终端中执行 `cd frontend && npm run build`。
+
+其他(文档): 更新 README.md
+
+### 2026-07-02
+
+需求分析(跨机器移植): 项目兼容性审计 + 可移植部署方案设计
+
+- 完成 28 个源文件的 GPU/CUDA/路径硬编码全量审计。
+- 设计宿主机 PyTorch 直接 GPU 访问 + Docker 仅跑 PostgreSQL 的混合架构。
+- 覆盖 RTX 3050~5090 全部系列的显存/架构/PyTorch/Ollama 推荐矩阵。
+- LLM 后端设计为策略模式（OllamaBackend + OpenAICompatibleBackend），.env 切换。
+
+文档生成(移植指南): 重写 `移植.md` 为 14 章完整手册
+
+- 含 `.env.example` 模板、`setup.py` GPU 检测代码、`llm_backend.py` 完整实现。
+- `docker-compose.yml` + `database.py` SQLite 回退代码。
+- 结果：从操作手册升级为完整部署方案文档。
+
 ### 2026-07-01
 
 重构(数据库): SQLite → PostgreSQL + SQLAlchemy async 迁移

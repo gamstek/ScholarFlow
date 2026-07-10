@@ -7,7 +7,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/agent': 'http://localhost:8000',
+      '/search': 'http://localhost:8000',
+      '/review': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
       '/stats': 'http://localhost:8000',
       '/papers': 'http://localhost:8000',

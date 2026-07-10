@@ -8,17 +8,13 @@ Nature 系列期刊文献检索客户端。
 2. 自动在查询中追加 Nature 系列期刊名作为过滤条件；
 3. 将结果标准化为统一的 PaperMetadata 数据结构。
 
-Nature 系列期刊列表：
-    Nature, Nature Communications, Nature Chemistry, Nature Methods,
-    Nature Biotechnology, Nature Food, Nature Medicine, Nature Genetics,
-    Nature Neuroscience, Nature Immunology, Nature Cell Biology,
-    Nature Chemical Biology, Nature Materials, Nature Nanotechnology,
-    Nature Physics, Nature Photonics, Nature Climate Change,
-    Nature Energy, Nature Sustainability, Nature Catalysis,
-    Nature Microbiology, Nature Plants, Nature Protocols,
-    Scientific Reports (Nature Portfolio), Communications Biology,
-    Communications Chemistry, Communications Physics,
-    npj 系列 (npj Science of Food 等)
+Nature 系列期刊列表（完整覆盖 Nature Portfolio）：
+    - Nature 主刊
+    - Nature 子刊（Chemistry / Methods / Medicine / Genetics / Neuroscience 等 30+ 本）
+    - Nature Reviews 全系列（23 本综述期刊）
+    - Communications 系列（Biology / Chemistry / Physics / Medicine 等 7 本）
+    - npj 系列（17 本 partner journals）
+    - Scientific Reports / Scientific Data / Humanities and Social Sciences Communications
 
 当前阶段通过 Europe PMC 检索（Nature 系列期刊均被 Europe PMC 收录），
 后续可扩展为直接调用 Springer Nature API。
@@ -42,13 +38,17 @@ from app.harvest.literature.europe_pmc_client import (
     extract_license,
     extract_pdf_url,
     parse_authors,
+    parse_citation_count,
     parse_open_access,
     parse_year,
 )
 
-# Nature 系列核心期刊（按影响力排序）
+# Nature 系列期刊完整列表
+# 包含：Nature 主刊 / Nature 子刊 / Nature Reviews 全系列 / npj 系列 / Communications 系列 / 其他 Nature Portfolio 期刊
 NATURE_JOURNALS = [
+    # ---- Nature 主刊 ----
     "Nature",
+    # ---- Nature 研究/子刊（按学科） ----
     "Nature Communications",
     "Nature Chemistry",
     "Nature Methods",
@@ -70,6 +70,22 @@ NATURE_JOURNALS = [
     "Nature Microbiology",
     "Nature Plants",
     "Nature Protocols",
+    "Nature Astronomy",
+    "Nature Biomedical Engineering",
+    "Nature Computational Science",
+    "Nature Cardiovascular Research",
+    "Nature Ecology & Evolution",
+    "Nature Electronics",
+    "Nature Food",
+    "Nature Geoscience",
+    "Nature Human Behaviour",
+    "Nature Machine Intelligence",
+    "Nature Mental Health",
+    "Nature Metabolism",
+    "Nature Structural & Molecular Biology",
+    "Nature Water",
+    "Nature Aging",
+    # ---- Nature Reviews 全系列 ----
     "Nature Reviews Chemistry",
     "Nature Reviews Molecular Cell Biology",
     "Nature Reviews Genetics",
@@ -79,10 +95,50 @@ NATURE_JOURNALS = [
     "Nature Reviews Drug Discovery",
     "Nature Reviews Microbiology",
     "Nature Reviews Materials",
-    "Scientific Reports",
+    "Nature Reviews Physics",
+    "Nature Reviews Bioengineering",
+    "Nature Reviews Chemical Engineering",
+    "Nature Reviews Earth & Environment",
+    "Nature Reviews Psychology",
+    "Nature Reviews Nephrology",
+    "Nature Reviews Cardiology",
+    "Nature Reviews Endocrinology",
+    "Nature Reviews Gastroenterology & Hepatology",
+    "Nature Reviews Neurology",
+    "Nature Reviews Rheumatology",
+    "Nature Reviews Urology",
+    "Nature Reviews Clinical Oncology",
+    "Nature Reviews Disease Primers",
+    # ---- Communications 系列 ----
     "Communications Biology",
     "Communications Chemistry",
     "Communications Physics",
+    "Communications Medicine",
+    "Communications Materials",
+    "Communications Earth & Environment",
+    "Communications Psychology",
+    # ---- npj 系列 ----
+    "npj Science of Food",
+    "npj 2D Materials and Applications",
+    "npj Climate Adaptation",
+    "npj Clean Water",
+    "npj Computational Materials",
+    "npj Digital Medicine",
+    "npj Flexible Electronics",
+    "npj Materials Degradation",
+    "npj Precision Oncology",
+    "npj Quantum Information",
+    "npj Quantum Materials",
+    "npj Regenerative Medicine",
+    "npj Science of Learning",
+    "npj Systems Biology and Applications",
+    "npj Vaccines",
+    "npj Biofilms and Microbiomes",
+    "npj Aging",
+    # ---- 其他 Nature Portfolio 期刊 ----
+    "Scientific Reports",
+    "Scientific Data",
+    "Humanities and Social Sciences Communications",
 ]
 
 
@@ -304,6 +360,7 @@ class NatureClient:
         pdf_url = extract_pdf_url(item)
         license_text = extract_license(item)
         is_open_access = parse_open_access(item)
+        citation_count = parse_citation_count(item)
 
         return PaperMetadata(
             title=title,
@@ -319,5 +376,6 @@ class NatureClient:
             pdf_url=pdf_url,
             license=license_text,
             is_open_access=is_open_access,
+            citation_count=citation_count,
             raw=item,
         )

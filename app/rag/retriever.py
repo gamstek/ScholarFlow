@@ -24,6 +24,7 @@ retriever.py
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -125,7 +126,12 @@ class LocalChunkRetriever:
                     "cpu"
                     "cuda"
                     None
+                若未显式指定，从环境变量 EMBEDDING_DEVICE 读取（默认 cpu）。
         """
+        # 若未显式指定设备，从环境变量读取（默认 cuda，通过 EMBEDDING_DEVICE=cpu 可切回 CPU）
+        if device is None:
+            device = os.getenv("EMBEDDING_DEVICE", "cuda")
+
         self.embedder = TextEmbedder(
             model_name=model_name,
             device=device,

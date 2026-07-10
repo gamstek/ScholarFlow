@@ -35,6 +35,7 @@ from app.harvest.literature.europe_pmc_client import (
     extract_license,
     extract_pdf_url,
     parse_authors,
+    parse_citation_count,
     parse_open_access,
     parse_year,
 )
@@ -268,6 +269,7 @@ class ScienceClient:
         pdf_url = extract_pdf_url(item)
         license_text = extract_license(item)
         is_open_access = parse_open_access(item)
+        citation_count = parse_citation_count(item)
 
         return PaperMetadata(
             title=title,
@@ -283,5 +285,6 @@ class ScienceClient:
             pdf_url=pdf_url,
             license=license_text,
             is_open_access=is_open_access,
+            citation_count=citation_count,
             raw=item,
         )

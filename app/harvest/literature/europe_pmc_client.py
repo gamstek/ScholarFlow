@@ -52,6 +52,7 @@ class PaperMetadata:
     pdf_url: Optional[str] = None
     license: Optional[str] = None
     is_open_access: int = 0
+    citation_count: Optional[int] = None
     raw: Optional[dict[str, Any]] = None
 
 
@@ -304,6 +305,7 @@ class EuropePmcClient:
         pdf_url = extract_pdf_url(item)
         license_text = extract_license(item)
         is_open_access = parse_open_access(item)
+        citation_count = parse_citation_count(item)
 
         return PaperMetadata(
             title=title,
@@ -319,6 +321,7 @@ class EuropePmcClient:
             pdf_url=pdf_url,
             license=license_text,
             is_open_access=is_open_access,
+            citation_count=citation_count,
             raw=item,
         )
 
@@ -441,6 +444,22 @@ def parse_open_access(item: dict[str, Any]) -> int:
         return 1
 
     return 0
+
+
+def parse_citation_count(item: dict[str, Any]) -> Optional[int]:
+    """
+    解析引用计数。
+
+    Europe PMC 的 resultType=core 返回 citedByCount 字段。
+    其他经过 Europe PMC 的源（Nature/Science/Cell）也使用此函数。
+    """
+    value = item.get("citedByCount")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
 
 
 def extract_pdf_url(item: dict[str, Any]) -> Optional[str]:

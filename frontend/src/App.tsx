@@ -1,56 +1,101 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ProtocolPage } from './components/protocol/ProtocolPage';
-import { AgentPanel } from './components/agent/AgentPanel';
+import { Sidebar, type TabKey } from './components/Sidebar';
+import { SearchPage } from './pages/SearchPage';
+import { AgentChatPage } from './pages/AgentChatPage';
+import { AskPage } from './pages/AskPage';
+import { LibraryPage } from './pages/LibraryPage';
+import { ReviewPage } from './pages/ReviewPage';
+import { PaperDetailPage } from './pages/PaperDetailPage';
+import { api, type HealthInfo } from './lib/api';
 
 const queryClient = new QueryClient();
 
-const TABS = [
-  { key: 'protocol', label: '课题协议' },
-  { key: 'agent', label: 'Agent 工作流' },
-] as const;
-
 function App() {
-  const [tab, setTab] = useState<string>('protocol');
+  const [tab, setTab] = useState<TabKey>('search');
+  const [health, setHealth] = useState<HealthInfo | null>(null);
+  const [healthLoading, setHealthLoading] = useState(true);
+
+  // 阅读模式：点击文献标题时进入
+  const [readingPaperId, setReadingPaperId] = useState<number | null>(null);
+
+  // 健康检查：失败时重试 3 次（递增间隔），应对服务尚未就绪的竞态
+  useEffect(() => {
+    let cancelled = false;
+    let retries = 0;
+    const maxRetries = 3;
+
+    const check = async () => {
+      for (let i = 0; i <= maxRetries; i++) {
+        try {
+          const data = await api.health();
+          if (!cancelled) {
+            setHealth(data);
+            setHealthLoading(false);
+          }
+          return;
+        } catch {
+          if (i < maxRetries) {
+            await new Promise((r) => setTimeout(r, (i + 1) * 2000));
+          }
+        }
+      }
+      if (!cancelled) {
+        setHealth(null);
+        setHealthLoading(false);
+      }
+    };
+
+    check();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSelectPaper = (paperId: number) => {
+    setReadingPaperId(paperId);
+    setTab('library');
+  };
+
+  const handleBackToLibrary = () => {
+    setReadingPaperId(null);
+  };
 
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="min-h-screen bg-zinc-950 text-zinc-200">
-        {/* 顶栏 */}
-        <header className="bg-zinc-900 border-b border-zinc-800 px-6 py-3">
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <h1 className="text-xl font-bold tracking-tight">ScholarFlow</h1>
-            <div className="flex gap-1">
-              {TABS.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key)}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    tab === t.key
-                      ? 'bg-blue-600 text-white'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
+      <div className="flex min-h-screen bg-[#fafafa]">
+        <Sidebar
+          active={tab}
+          onNavigate={(t) => {
+            setTab(t);
+            if (t !== 'library') setReadingPaperId(null);
+          }}
+          health={health}
+          healthLoading={healthLoading}
+        />
+
+        {/* 内容区 — 用 display:none 保持各页面 state 不丢失 */}
+        <main className="flex-1 overflow-y-auto">
+          <div className="max-w-4xl mx-auto px-8 py-8">
+            <div style={{ display: tab === 'search' ? 'block' : 'none' }}>
+              <SearchPage onSelectPaper={handleSelectPaper} />
+            </div>
+            <div style={{ display: tab === 'agent' ? 'flex' : 'none' }} className="flex-col h-[calc(100vh-4rem)]">
+              <AgentChatPage />
+            </div>
+            <div style={{ display: tab === 'ask' ? 'block' : 'none' }}>
+              <AskPage />
+            </div>
+            <div style={{ display: tab === 'library' ? 'block' : 'none' }}>
+              {readingPaperId ? (
+                <PaperDetailPage paperId={readingPaperId} onBack={handleBackToLibrary} />
+              ) : (
+                <LibraryPage onSelectPaper={handleSelectPaper} />
+              )}
+            </div>
+            <div style={{ display: tab === 'review' ? 'block' : 'none' }}>
+              <ReviewPage />
             </div>
           </div>
-        </header>
-
-        {/* 主内容 */}
-        <main className="max-w-5xl mx-auto px-6 py-6">
-          {tab === 'protocol' && <ProtocolPage />}
-          {tab === 'agent' && <AgentPanel />}
         </main>
-
-        {/* 底栏 */}
-        <footer className="fixed bottom-0 w-full bg-zinc-900 border-t border-zinc-800 px-6 py-1.5">
-          <div className="max-w-7xl mx-auto flex items-center justify-between text-xs text-zinc-600">
-            <span>ScholarFlow v1.2.0</span>
-            <span>C01: PICO Protocol · Gate 1</span>
-          </div>
-        </footer>
       </div>
     </QueryClientProvider>
   );

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 # ============================================================
 # 1. 项目路径配置
@@ -41,9 +42,6 @@ SPECTRA_DIR = DATA_DIR / "spectra"
 COMPOUNDS_DIR = DATA_DIR / "compounds"
 INDEX_DIR = DATA_DIR / "index"
 
-# 旧 SQLite 路径（保留兼容）
-OLD_DB_PATH = DB_DIR / "food_structure_rag.db"
-
 # ============================================================
 # 2. 数据库连接配置
 # ============================================================
@@ -55,8 +53,7 @@ DATABASE_URL = os.getenv(
 
 async_engine = create_async_engine(
     DATABASE_URL,
-    pool_size=20,
-    max_overflow=10,
+    poolclass=NullPool,
     echo=False,
 )
 

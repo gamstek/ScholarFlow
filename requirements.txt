@@ -1,6 +1,20 @@
 # ============================================================
-# PyTorch CUDA 12.8 软件源
-# 适用于 NVIDIA GeForce RTX 5060 Ti（Blackwell 架构）
+# ScholarFlow 依赖 — 主入口（请根据你的显卡选择对应文件安装）
+#
+# 本项目按 NVIDIA GPU 架构分成三套依赖，确保 CUDA/PyTorch 兼容：
+#
+#   requirements-rtx30.txt  → RTX 3050~3090 Ti  (Ampere,  CUDA 12.1)
+#   requirements-rtx40.txt  → RTX 4060~4090     (Ada,      CUDA 12.4)
+#   requirements-rtx50.txt  → RTX 5060~5090     (Blackwell,CUDA 12.8)
+#
+# 如果你不确定显卡型号，运行：nvidia-smi --query-gpu=name --format=csv,noheader
+#
+# 安装方式（以 RTX 50 系列为例）：
+#   pip install -r requirements-rtx50.txt
+#
+# ============================================================
+# 本文件仅作参考，实际安装请使用上面的 GPU 专用依赖文件。
+# 以下内容与 requirements-rtx50.txt 同步（当前开发机为 RTX 5060 Ti）。
 # ============================================================
 --extra-index-url https://download.pytorch.org/whl/cu128
 
@@ -57,13 +71,12 @@ sqlalchemy[asyncio]>=2.0
 psycopg2-binary>=2.9
 
 # ============================================================
-# LangGraph 工作流
-# ============================================================
-langgraph>=0.6
-langgraph-checkpoint-postgres
-psycopg-binary
-
-# ============================================================
 # Ollama LLM
 # ============================================================
 httpx>=0.27
+
+# ============================================================
+# LangChain Agent
+# ============================================================
+langchain>=0.3
+langchain-ollama>=0.3
