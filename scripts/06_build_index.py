@@ -48,7 +48,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-from app.rag.embedder import TextEmbedder  # noqa: E402
+from app.rag.embedder import DEFAULT_EMBEDDING_MODEL, TextEmbedder  # noqa: E402
 from app.rag.vector_store import FaissVectorStore  # noqa: E402
 from app.storage.database import async_session_factory, init_db  # noqa: E402
 from app.storage.repositories import ChunkRepository  # noqa: E402
@@ -81,7 +81,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model-name",
         type=str,
-        default="BAAI/bge-m3",
+        default=DEFAULT_EMBEDDING_MODEL,
         help="embedding 模型名称或本地路径。",
     )
 

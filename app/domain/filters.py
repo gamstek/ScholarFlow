@@ -32,6 +32,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from app.rag.embedder import DEFAULT_EMBEDDING_MODEL
+
 
 @dataclass
 class DomainFilterResult:
@@ -112,8 +114,8 @@ class QueryDrivenScorer:
         print(result.domain_score)
     """
 
-    # 默认 embedding 模型
-    DEFAULT_MODEL = "BAAI/bge-m3"
+    # 默认 embedding 模型（从 embedder 模块统一解析）
+    DEFAULT_MODEL = DEFAULT_EMBEDDING_MODEL
 
     def __init__(
         self,

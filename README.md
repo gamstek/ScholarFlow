@@ -19,63 +19,172 @@
 
 ---
 
-## 环境要求
+## 1. 环境要求
 
-| 依赖 | 说明 |
-|---|---|
-| **Python** | 3.10 ~ 3.12（推荐 conda 环境 `scholarflow`） |
-| **PostgreSQL** | 16+（Docker 自动管理） |
-| **Docker Desktop** | 运行 PostgreSQL 容器 |
-| **Node.js** | 18+（仅修改前端代码时需要） |
+### 硬件
+
+| 项目 | 最低要求 | 推荐 |
+|---|---|---|
+| GPU | 无（可 CPU 运行） | NVIDIA RTX 3060+（6GB+ 显存） |
+| 内存 | 8 GB | 16 GB+ |
+| 磁盘 | 10 GB | 20 GB+（含 PDF 存储） |
+
+### 软件
+
+| 依赖 | 版本 | 说明 |
+|---|---|---|
+| **Python** | 3.10 ~ 3.12 | 推荐使用 conda 环境 `scholarflow` |
+| **PostgreSQL** | 16+ | 通过 Docker 运行，端口 5433 |
+| **Docker Desktop** | 最新版 | 运行 PostgreSQL 容器 |
+| **Node.js** | 18+ | 仅修改前端代码时需要 |
 
 ### LLM 后端（二选一）
 
 | 方式 | 配置 | 适用场景 |
 |---|---|---|
 | **Ollama 本地** | 安装 Ollama + `ollama pull qwen3:8b` | 离线使用，无需 API Key |
-| **云端 API** | 设置 `.env` 中 `LLM_BACKEND=deepseek` + `CLOUD_API_KEY` | 更快响应，无本地显存要求 |
+| **云端 API** | `.env` 中设置 `LLM_BACKEND=deepseek` + `CLOUD_API_KEY` | 更快响应，无本地显存要求 |
 
 ### Embedding 模型
 
-项目使用 **BGE-M3** 嵌入模型，首次运行时自动下载。启动时自动预热，首次搜索无需等待模型加载。
+项目使用 **BGE-M3**（`BAAI/bge-m3`），约 2.2 GB，向量维度 1024。
+
+模型统一存放在项目 `embedding/` 目录下，首次需手动下载：
+
+```powershell
+# 推荐：Python 脚本下载（支持国内镜像加速）
+python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-m3', local_dir='embedding/bge-m3', ignore_patterns=['*.onnx*', 'onnx/**', 'imgs/**', '*.jpg', '*.webp', '*.pt', '*.md', '.gitattributes'])"
+
+# 国内镜像加速（在命令末尾加 endpoint 参数）
+python -c "...snapshot_download(..., endpoint='https://hf-mirror.com')"
+```
+
+> 详见 `embedding/README.md`
 
 ---
 
-## 快速开始
+## 2. 环境检测
 
-### 1. 环境准备（只需一次）
+安装依赖前，先运行检测脚本确认本机是否满足要求：
 
-```bash
-# 安装依赖（自动检测 GPU 型号匹配 PyTorch CUDA 版本）
+```powershell
+python .github\skills\check-dependencies\check_env.py
+```
+
+检测项包括：
+
+| 检测项 | 说明 |
+|---|---|
+| Python 版本 | 3.10 ~ 3.12 |
+| pip 关键包 | torch, sentence-transformers, faiss-cpu, fastapi 等 |
+| PyTorch CUDA | GPU 型号与 CUDA 版本兼容性 |
+| Ollama 服务 | 本地 LLM 后端是否运行 |
+| PostgreSQL | Docker 容器状态 |
+| FAISS 索引 | `data/index/` 是否存在 |
+| BGE-M3 模型 | `embedding/bge-m3/` 或 HuggingFace 缓存 |
+
+输出结果会标注 ✅/❌ 并给出修复建议。
+
+---
+
+## 3. 依赖准备
+
+### 3.1 创建 Python 环境
+
+```powershell
+conda create -n scholarflow python=3.11 -y
+conda activate scholarflow
+```
+
+### 3.2 安装依赖
+
+项目已按 GPU 架构分拆依赖文件（RTX 30/40/50 系列），运行智能安装脚本自动检测：
+
+```powershell
 install_deps.bat
+```
 
-# 如果用本地 Ollama 模式
+脚本会自动：检测 GPU 型号 → 匹配 compute capability → 选择对应 `requirements-rtx*.txt` → pip 安装 → 验证 `torch.cuda.is_available()`。
+
+> 手动指定架构：`pip install -r requirements/requirements-rtx50.txt`（替换为你对应的文件）
+
+### 3.3 下载 Embedding 模型
+
+```powershell
+# 下载 BGE-M3 到项目 embedding/ 目录（约 2.2 GB）
+python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-m3', local_dir='embedding/bge-m3', ignore_patterns=['*.onnx*', 'onnx/**', 'imgs/**', '*.jpg', '*.webp', '*.pt', '*.md', '.gitattributes'])"
+```
+
+> 国内用户追加 `, endpoint='https://hf-mirror.com'` 到 `snapshot_download()` 参数中
+
+### 3.4 创建数据库容器
+
+```powershell
+# 国内用户先走镜像源拉取
+docker pull docker.m.daocloud.io/library/postgres:16
+docker tag docker.m.daocloud.io/library/postgres:16 postgres:16
+
+# 创建并启动容器（端口 5433，避免与本机 PostgreSQL 冲突）
+docker run -d --name scholarflow-pg -p 5433:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=scholarflow -e POSTGRES_DB=scholarflow postgres:16
+```
+
+验证：
+
+```powershell
+docker ps --filter "name=scholarflow-pg"
+```
+
+### 3.5 （可选）拉取 Ollama 模型
+
+```powershell
 ollama pull qwen3:8b
 ```
 
-### 2. 配置 `.env`（可选）
+---
+
+## 4. .env 配置
+
+项目根目录已有 `.env` 模板，用文本编辑器打开修改：
 
 ```env
-# LLM 后端：ollama（本地）或 deepseek（云端）
+# ===== 数据库（一般无需修改）=====
+DATABASE_URL=postgresql+asyncpg://postgres:scholarflow@127.0.0.1:5433/scholarflow
+
+# ===== LLM 后端选择 =====
+# ollama（本地）| deepseek | openai | qwen（云端）
 LLM_BACKEND=deepseek
 
-# 云端 API（LLM_BACKEND=deepseek 时生效）
-CLOUD_API_KEY=sk-xxx
+# 云端 API（LLM_BACKEND 为云端时生效）
+CLOUD_API_KEY=sk-your-key-here        # 替换为你的 API Key
 CLOUD_API_BASE=https://api.deepseek.com/v1
 CLOUD_MODEL=deepseek-chat
 
 # 本地 Ollama（LLM_BACKEND=ollama 时生效）
 OLLAMA_MODEL=qwen3:8b
 OLLAMA_BASE_URL=http://localhost:11434
+
+# ===== BGE-M3 嵌入模型 =====
+BGE_MODEL_PATH=embedding/bge-m3       # 指向本地模型目录
+HF_HUB_OFFLINE=1                      # 1=离线加载，不联网验证
 ```
 
-### 3. 启动
+**快速切换 LLM**：只需改 `LLM_BACKEND` 一行（`ollama` ↔ `deepseek` ↔ `openai` ↔ `qwen`），重启即生效。
 
-**双击 `start.bat`**，自动完成 PostgreSQL + Ollama 检查 + 后端启动 + 打开浏览器。
+---
 
-浏览器自动打开 `http://localhost:8000`。停止：`Ctrl+C`。
+## 5. 启动
 
-> 前端已预构建。修改前端代码后执行 `cd frontend && npm run build`。
+**双击 `start.bat`**，脚本自动完成：
+
+1. 检测/启动 PostgreSQL Docker 容器
+2. 检测/启动 Ollama 服务
+3. 加载 `.env` 配置
+4. 启动 FastAPI 后端 + 预热 BGE-M3 模型
+5. 自动打开浏览器 `http://localhost:8000`
+
+停止：`Ctrl+C`。
+
+> 前端已预构建在 `frontend/dist/`。修改前端代码后执行 `cd frontend && npm run build` 重新构建。
 
 ---
 

@@ -25,7 +25,7 @@ from app.document.pdf_parser import PdfParser
 from app.document.section_parser import parse_sections_from_pages, sections_to_dicts
 from app.harvest.harvester import LiteratureHarvester, report_to_dict, search_report_to_dict
 from app.harvest.literature.pdf_resolver import OpenAccessPdfResolver
-from app.rag.embedder import TextEmbedder
+from app.rag.embedder import DEFAULT_EMBEDDING_MODEL, TextEmbedder
 from app.rag.vector_store import FaissVectorStore
 from app.storage.database import async_session_factory, init_db
 from app.storage.file_store import (
@@ -939,7 +939,7 @@ async def update_papers_as_indexed_for_chunks(
 async def build_faiss_index_service(
     limit: int = 100,
     batch_size: int = 4,
-    model_name: str = "BAAI/bge-m3",
+    model_name: str = DEFAULT_EMBEDDING_MODEL,
     device: str | None = None,
     rebuild: bool = False,
 ) -> dict[str, Any]:

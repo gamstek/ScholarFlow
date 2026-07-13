@@ -28,7 +28,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from app.rag.embedder import TextEmbedder
+from app.rag.embedder import DEFAULT_EMBEDDING_MODEL, TextEmbedder
 from app.rag.vector_store import FaissVectorStore
 from app.storage.database import async_session_factory
 
@@ -111,7 +111,7 @@ class LocalChunkRetriever:
 
     def __init__(
         self,
-        model_name: str = TextEmbedder._LOCAL_BGE_M3_PATH,
+        model_name: str = DEFAULT_EMBEDDING_MODEL,
         device: str | None = None,
     ) -> None:
         """

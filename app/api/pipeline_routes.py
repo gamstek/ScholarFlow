@@ -22,6 +22,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.rag.embedder import DEFAULT_EMBEDDING_MODEL
 from app.services.pipeline_service import (
     build_chunks_service,
     build_faiss_index_service,
@@ -191,7 +192,7 @@ class BuildFaissIndexRequest(BaseModel):
     )
 
     model_name: str = Field(
-        "BAAI/bge-m3",
+        DEFAULT_EMBEDDING_MODEL,
         description="embedding 模型名称或本地路径。",
     )
 

@@ -18,18 +18,70 @@ embedder.py
     3. 适合文献、技术文本、长文本语义匹配；
     4. 你前面的轻量 RAG 系统本来就计划使用 BGE-M3。
 
-注意：
-    第一次运行会下载模型。
-    如果网络不稳定，可以提前把模型下载到本地，然后把 model_name 改成本地路径。
+模型加载优先级：
+    1. .env 中 BGE_MODEL_PATH 指向的有效本地路径
+    2. 项目根目录 embedding/bge-m3/（本地模型文件夹）
+    3. "BAAI/bge-m3"（HuggingFace Hub 自动下载）
+
+离线使用：
+    设置环境变量 HF_HUB_OFFLINE=1 并确保模型已在本地。
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable
 
 import numpy as np
+
+
+# ============================================================
+# Embedding 模型路径解析
+# ============================================================
+
+# embedder.py 位于 app/rag/，项目根目录 = parents[2]
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_EMBEDDING_DIR = _PROJECT_ROOT / "embedding"
+_DEFAULT_LOCAL_MODEL_DIR = _EMBEDDING_DIR / "bge-m3"
+
+# HuggingFace Hub 上的模型标识（作为最终回退）
+_HF_BGE_M3_NAME = "BAAI/bge-m3"
+
+
+def _resolve_embedding_model_path() -> str:
+    """
+    解析 embedding 模型路径。
+
+    优先级：
+        1. 环境变量 BGE_MODEL_PATH 指向的有效本地路径
+        2. 项目根目录 embedding/bge-m3/（如果存在）
+        3. BAAI/bge-m3（HuggingFace Hub 自动下载）
+
+    返回：
+        模型路径字符串。
+    """
+    env_path = os.getenv("BGE_MODEL_PATH", "").strip()
+
+    # 优先级 1：环境变量明确指向存在的本地路径
+    if env_path:
+        env_resolved = Path(env_path)
+        if not env_resolved.is_absolute():
+            env_resolved = (_PROJECT_ROOT / env_path).resolve()
+        if env_resolved.exists():
+            return str(env_resolved)
+
+    # 优先级 2：项目根目录下的 embedding/bge-m3/
+    if _DEFAULT_LOCAL_MODEL_DIR.exists():
+        return str(_DEFAULT_LOCAL_MODEL_DIR)
+
+    # 优先级 3：回退到 HuggingFace Hub 名称
+    return _HF_BGE_M3_NAME
+
+
+# 模块级默认路径（导入时解析一次）
+DEFAULT_EMBEDDING_MODEL = _resolve_embedding_model_path()
 
 
 @dataclass
@@ -68,12 +120,12 @@ class TextEmbedder:
             向量化用户问题。
     """
 
-    # BGE-M3 模型名（sentence-transformers 自动从 HuggingFace 缓存加载）
-    _LOCAL_BGE_M3_PATH = "BAAI/bge-m3"
+    # 默认 embedding 模型路径（自动解析：本地 > HuggingFace Hub）
+    DEFAULT_MODEL = DEFAULT_EMBEDDING_MODEL
 
     def __init__(
         self,
-        model_name: str = _LOCAL_BGE_M3_PATH,
+        model_name: str = DEFAULT_MODEL,
         device: str | None = None,
         normalize_embeddings: bool = True,
     ) -> None:

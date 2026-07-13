@@ -37,6 +37,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.api.pipeline_routes import router as pipeline_router
+from app.rag.embedder import DEFAULT_EMBEDDING_MODEL
 from app.rag.rag_engine import LocalRagEngine
 from app.rag.retriever import LocalChunkRetriever, evidences_to_dicts
 from app.services.review_service import generate_review
@@ -66,7 +67,7 @@ async def lifespan(app: FastAPI) -> None:
     # 预热 BGE-M3 embedding 模型，避免首次搜索等待 10s 模型加载
     try:
         from app.domain.filters import _get_embedder
-        _get_embedder(model_name="BAAI/bge-m3", device=None)
+        _get_embedder(model_name=DEFAULT_EMBEDDING_MODEL, device=None)
         print("[Lifespan] BGE-M3 embedding model warmed up")
     except Exception as exc:
         print(f"[Lifespan] embedding warmup skipped: {exc}")
@@ -171,7 +172,7 @@ class AskRequest(BaseModel):
     )
 
     embedding_model: str = Field(
-        "BAAI/bge-m3",
+        DEFAULT_EMBEDDING_MODEL,
         description="embedding 模型名称或本地路径。",
     )
 
@@ -265,7 +266,7 @@ class ChunkSearchRequest(BaseModel):
     )
 
     embedding_model: str = Field(
-        "BAAI/bge-m3",
+        DEFAULT_EMBEDDING_MODEL,
         description="embedding 模型名称或本地路径。",
     )
 
@@ -281,7 +282,7 @@ class WarmupRequest(BaseModel):
     """
 
     embedding_model: str = Field(
-        "BAAI/bge-m3",
+        DEFAULT_EMBEDDING_MODEL,
         description="embedding 模型名称或本地路径。",
     )
 
@@ -463,7 +464,7 @@ async def health() -> dict[str, Any]:
     import httpx
 
     llm_backend = os.getenv("LLM_BACKEND", "ollama")
-    embedding_model = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
+    embedding_model = DEFAULT_EMBEDDING_MODEL
 
     # 根据 LLM_BACKEND 确定模型信息
     if llm_backend == "deepseek":

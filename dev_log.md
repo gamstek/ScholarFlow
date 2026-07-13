@@ -22,6 +22,33 @@
 
 ## 开发时间线
 
+### 2026-07-13
+
+重构(embedding): 新建 embedding/ 本地模型目录，统一全项目 BGE-M3 路径解析
+
+- 新建 `embedding/` 目录 + `README.md`（含手动下载 BGE-M3 的三种方法和目录结构说明）。
+- `app/rag/embedder.py` 新增 `_resolve_embedding_model_path()` 统一路径解析：优先级为 `BGE_MODEL_PATH` 环境变量 → `embedding/bge-m3/` 本地目录 → `BAAI/bge-m3` HF Hub 回退。
+- 导出模块级常量 `DEFAULT_EMBEDDING_MODEL`，全项目 8 个文件统一引用该路径，消除所有硬编码 `"BAAI/bge-m3"`：
+  - `app/rag/embedder.py` — `TextEmbedder.DEFAULT_MODEL`
+  - `app/rag/rag_engine.py` — `LocalRagEngine.__init__` 默认参数
+  - `app/rag/retriever.py` — `LocalChunkRetriever.__init__` 默认参数
+  - `app/domain/filters.py` — `QueryDrivenScorer.DEFAULT_MODEL`
+  - `app/main.py` — lifespan 预热 + 3 个 Pydantic Request 模型的 default
+  - `app/api/pipeline_routes.py` — `BuildIndexRequest.model_name` default
+  - `app/services/pipeline_service.py` — `build_faiss_index_service` 默认参数
+  - `app/agent/tools.py` — `ask_paper` Tool 内 `LocalRagEngine` 初始化
+  - `scripts/06_build_index.py` / `scripts/08_search.py` / `scripts/09_ask.py` — 命令行参数 default
+- `.env` 中 `BGE_MODEL_PATH` 改为 `embedding/bge-m3`（相对项目根目录）。
+
+文档生成(README): 按"环境要求→检测→依赖准备→.env配置→启动"流程重排 README
+
+- 新增"1. 环境要求"小节（硬件/软件/LLM 后端/Embedding 模型，含 BGE-M3 本地下载命令）。
+- 新增"2. 环境检测"小节（`check_env.py` 检测项说明）。
+- 将原"快速开始"拆分为"3. 依赖准备"（3.1 conda 环境 → 3.2 install_deps.bat → 3.3 下载 BGE-M3 → 3.4 Docker PostgreSQL → 3.5 Ollama 模型）。
+- "4. .env 配置"更新 `BGE_MODEL_PATH=embedding/bge-m3`，补充 `openai`/`qwen` 后端说明。
+- "5. 启动"增加 `start.bat` 自动完成的 5 个步骤说明。
+- 保留 API 接口/数据源/Agent 工具/数据目录/技术架构/项目结构/常见问题不变。
+
 ### 2026-07-10
 
 代码生成(harvester+frontend): 检索结果增加按时间/引用量排序 + SSE 流式检索进度显示
@@ -100,6 +127,22 @@
 其他(data): 清洗 data/ 目录
 
 - 删除孤立 text 文件（无对应 DB 记录）、诊断 JSON、空目录（compounds/db/pdfs/spectra/test）。
+
+修复(dependencies): requirements 缺失 langchain-openai 导致 Agent 启动报错
+
+- 三个 `requirements-rtx*.txt` 的 LangChain Agent 区块均缺少 `langchain-openai>=0.3`，导致 `agent.py` 顶层 import 失败（`ModuleNotFoundError: No module named 'langchain_openai'`）。
+- 已补入三个文件并在 scholarflow 环境安装（langchain-openai 1.3.4 + openai 2.45.0 + tiktoken 0.13.0）。
+- 同时修正 `start.bat` 硬编码的 Python 路径（`D:\Anaconda3\...` → `C:\Users\HP\.conda\...`）。
+
+文档生成(README): 补充 BGE-M3 下载缓存说明 + .env 配置指引
+
+- Embedding 模型区块：新增首次下载说明（模型大小 ~2.2GB、缓存路径、国内镜像 `hf-mirror.com`、HF_HUB_OFFLINE 开关时机）。
+- .env 配置区块：从"可选"改为"按需修改"，补充 `DATABASE_URL`、`HF_HUB_OFFLINE` 等完整字段说明，明确只需改一行即可切换 LLM。
+
+代码生成(startup+README): start.bat 修复 .env 解析 + README 添加 Docker 数据库容器教程
+
+- `start.bat` 的 `.env` 解析用 `findstr /v "^#"` 过滤注释行 + `findstr "."` 过滤空行 + `tokens=1*` 保留值中的 `=`，避免注释行被当作变量赋值导致异常。
+- `README.md` 新增"0. 创建数据库容器"小节，含 `docker run` 完整命令、验证/启停命令，与 `.env` 参数对应说明。
 
 ### 2026-07-09
 

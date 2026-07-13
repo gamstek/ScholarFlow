@@ -56,11 +56,11 @@ start "" cmd /c "timeout /t 3 >nul && start http://localhost:8000"
 set HF_HUB_OFFLINE=1
 :: Load .env if exists (for DATABASE_URL etc.)
 if exist .env (
-    for /f "usebackq tokens=1,2 delims==" %%a in (".env") do (
-        set %%a=%%b
+    for /f "usebackq tokens=1* delims==" %%a in (`findstr /v "^#" .env ^| findstr "."`) do (
+        set "%%a=%%b"
     )
 )
-set PYTHON=D:\Anaconda3\envs\scholarflow\python.exe
+set PYTHON=C:\Users\HP\.conda\envs\scholarflow\python.exe
 set PYTHONPATH=%CD%
 %PYTHON% -m app.main
 pause

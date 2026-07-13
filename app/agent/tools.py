@@ -18,6 +18,8 @@ from typing import Any, Optional
 
 from langchain_core.tools import tool
 
+from app.rag.embedder import DEFAULT_EMBEDDING_MODEL
+
 
 # ============================================================
 # 1. 检索论文
@@ -211,7 +213,7 @@ def ask_paper(question: str, top_k: int = 5) -> str:
     from app.rag.rag_engine import LocalRagEngine
 
     engine = LocalRagEngine(
-        embedding_model_name="BAAI/bge-m3",
+        embedding_model_name=DEFAULT_EMBEDDING_MODEL,
         ollama_model="qwen3:8b",
         ollama_base_url="http://localhost:11434",
         temperature=0.2,

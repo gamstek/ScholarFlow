@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from app.rag.generator import OllamaGenerator
-from app.rag.embedder import TextEmbedder
+from app.rag.embedder import DEFAULT_EMBEDDING_MODEL
 from app.rag.retriever import (
     LocalChunkRetriever,
     evidences_to_dicts,
@@ -68,7 +68,7 @@ class LocalRagEngine:
 
     def __init__(
         self,
-        embedding_model_name: str = TextEmbedder._LOCAL_BGE_M3_PATH,
+        embedding_model_name: str = DEFAULT_EMBEDDING_MODEL,
         embedding_device: str | None = None,
         ollama_model: str = "qwen3:8b",
         ollama_base_url: str = "http://localhost:11434",
