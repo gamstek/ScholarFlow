@@ -1,14 +1,14 @@
 """
 generator.py
 
-本地大模型生成模块 Generator。
+⚠ DEPRECATED — 请使用 app.llm_factory.create_raw_llm() 代替。
 
-当前版本：
-1. 使用 Ollama /api/chat，而不是 /api/generate；
-2. 适配 qwen3:8b 的 thinking 行为；
-3. 默认关闭 thinking；
-4. 从 message.content 提取最终回答；
-5. 用于科研文献 RAG 问答。
+本地大模型生成模块 Generator（仅支持 Ollama）。
+
+自配置管理重构（2026-07-21）起，所有 LLM 调用应通过
+app.llm_factory.create_raw_llm() 或 app.llm_factory.create_chat_model()。
+
+本模块保留仅为向后兼容，将在后续版本移除。
 """
 
 from __future__ import annotations
@@ -47,12 +47,9 @@ class GenerationResult:
 
 class OllamaGenerator:
     """
-    Ollama 本地生成器。
+    ⚠ DEPRECATED — 请使用 app.llm_factory.create_raw_llm() 代替。
 
-    重点：
-        qwen3:8b 属于 thinking 模型。
-        对 RAG 来说，建议关闭 thinking，
-        否则可能出现 response/message.content 为空、生成很慢等问题。
+    Ollama 本地生成器（仅支持 Ollama）。
     """
 
     def __init__(

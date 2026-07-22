@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Callable, Optional
 
 from app.domain.filters import QueryDrivenScorer
+from app.domain.paper_tags import classify_paper_tags
 from app.harvest.literature.europe_pmc_client import (
     EuropePmcClient,
     PaperMetadata,
@@ -38,6 +39,8 @@ from app.harvest.literature.science_client import ScienceClient
 from app.harvest.literature.cell_client import CellClient
 from app.harvest.literature.arxiv_client import ArxivClient
 from app.harvest.literature.semantic_scholar_client import SemanticScholarClient
+from app.harvest.literature.pubmed_client import PubmedClient
+from app.harvest.literature.openalex_client import OpenAlexClient
 from app.storage.database import async_session_factory, init_db
 from app.storage.repositories import CrawlTaskRepository, PaperRepository
 
@@ -72,6 +75,7 @@ class SearchHit:
     title: str
     abstract: Optional[str]
     authors: Optional[list[str]]
+    author_affiliations: Optional[list[dict]]
     year: Optional[int]
     journal: Optional[str]
     doi: Optional[str]
@@ -86,6 +90,7 @@ class SearchHit:
     domain_score: float
     in_library: bool
     paper_id: Optional[int]
+    tags: list[str]
 
 
 @dataclass
@@ -120,6 +125,8 @@ class LiteratureHarvester:
         cell_client: Optional[CellClient] = None,
         arxiv_client: Optional[ArxivClient] = None,
         semantic_scholar_client: Optional[SemanticScholarClient] = None,
+        pubmed_client: Optional[PubmedClient] = None,
+        openalex_client: Optional[OpenAlexClient] = None,
         min_domain_score: float = 0.25,
     ) -> None:
         """
@@ -132,6 +139,8 @@ class LiteratureHarvester:
             cell_client: Cell Press 系列期刊客户端。
             arxiv_client: arXiv 客户端。
             semantic_scholar_client: Semantic Scholar 客户端。
+            pubmed_client: PubMed 客户端。
+            openalex_client: OpenAlex 客户端。
             min_domain_score: 最低语义相似度阈值，低于该分数的文献不入库。
                 查询驱动评分模式下，推荐 0.20~0.30。
         """
@@ -141,6 +150,8 @@ class LiteratureHarvester:
         self.cell_client = cell_client or CellClient()
         self.arxiv_client = arxiv_client or ArxivClient()
         self.semantic_scholar_client = semantic_scholar_client or SemanticScholarClient()
+        self.pubmed_client = pubmed_client or PubmedClient()
+        self.openalex_client = openalex_client or OpenAlexClient()
         self.min_domain_score = min_domain_score
 
         self.task_repo = CrawlTaskRepository()
@@ -200,6 +211,12 @@ class LiteratureHarvester:
         domain: str | None = None,
         sort_by: str = "relevance",
         sort_order: str = "desc",
+        author: str | None = None,
+        journal: str | None = None,
+        preprint_sources: list[str] | None = None,
+        institution: str | None = None,
+        language: str | None = None,
+        max_total: int | None = None,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> SearchReport:
         """
@@ -213,6 +230,8 @@ class LiteratureHarvester:
             enhance_terms: 增强方向词。
             keywords: LLM 提取的关键词（用于返回给前端展示）。
             domain: LLM 提取的领域标签。
+            author: 按作者名过滤。
+            journal: 按期刊名过滤（仅 europe_pmc 生效）。
 
         返回：
             SearchReport。
@@ -220,7 +239,7 @@ class LiteratureHarvester:
         if sources is None:
             sources = ["europe_pmc"]
 
-        if not query or not query.strip():
+        if (not query or not query.strip()) and (not author or not author.strip()):
             raise ValueError("query 不能为空。")
 
         await init_db()
@@ -242,6 +261,11 @@ class LiteratureHarvester:
                     max_results=max_results,
                     enhance_query=enhance_query,
                     enhance_terms=enhance_terms,
+                    author=author,
+                    journal=journal,
+                    preprint_sources=preprint_sources,
+                    institution=institution,
+                    language=language,
                 )
                 return (source, papers, None)
             except Exception as exc:
@@ -275,9 +299,10 @@ class LiteratureHarvester:
         all_papers = self._deduplicate(all_papers)
         deduplicated_count = len(all_papers)
 
-        # 3. 查询驱动批量评分
+        # 3. 查询驱动批量评分（纯作者/机构搜索时用作者/机构名作为评分回退）
+        scorer_query = query.strip() if query and query.strip() else (author or institution or "")
         scorer = QueryDrivenScorer()
-        scorer.prepare(query=query)
+        scorer.prepare(query=scorer_query)
 
         paper_dicts = [
             {"title": p.title, "abstract": p.abstract}
@@ -294,6 +319,10 @@ class LiteratureHarvester:
         elif sort_by == "citations":
             scored_papers.sort(key=lambda x: (x[0].citation_count is not None, x[0].citation_count or 0), reverse=reverse)
         # else: relevance — 保持 domain_score 排序
+
+        # 4b. max_total 截断（跨源汇总后限制总篇数）
+        if max_total and len(scored_papers) > max_total:
+            scored_papers = scored_papers[:max_total]
 
         # 5. 批量查库 — 检查哪些已在库中
         in_library_map = await self._batch_check_in_library(scored_papers)
@@ -322,6 +351,7 @@ class LiteratureHarvester:
                 title=paper.title,
                 abstract=paper.abstract,
                 authors=paper.authors,
+                author_affiliations=paper.author_affiliations,
                 year=paper.year,
                 journal=paper.journal,
                 doi=paper.doi,
@@ -336,6 +366,14 @@ class LiteratureHarvester:
                 domain_score=fresult.domain_score,
                 in_library=in_library,
                 paper_id=paper_id,
+                tags=classify_paper_tags(
+                    title=paper.title,
+                    year=paper.year,
+                    citation_count=paper.citation_count,
+                    pubtype=(paper.raw or {}).get("pubtype"),
+                    journal=paper.journal,
+                    source=paper.source,
+                ),
             ))
 
         return SearchReport(
@@ -366,6 +404,12 @@ class LiteratureHarvester:
         domain: str | None = None,
         sort_by: str = "relevance",
         sort_order: str = "desc",
+        author: str | None = None,
+        journal: str | None = None,
+        preprint_sources: list[str] | None = None,
+        institution: str | None = None,
+        language: str | None = None,
+        max_total: int | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         流式检索：逐源推送进度事件（SSE），最后推送完整结果。
@@ -377,7 +421,7 @@ class LiteratureHarvester:
         if sources is None:
             sources = ["europe_pmc"]
 
-        if not query or not query.strip():
+        if (not query or not query.strip()) and (not author or not author.strip()):
             raise ValueError("query 不能为空。")
 
         await init_db()
@@ -397,6 +441,11 @@ class LiteratureHarvester:
                     max_results=max_results,
                     enhance_query=enhance_query,
                     enhance_terms=enhance_terms,
+                    author=author,
+                    journal=journal,
+                    preprint_sources=preprint_sources,
+                    institution=institution,
+                    language=language,
                 )
                 return (source, papers, None)
             except Exception as exc:
@@ -420,9 +469,10 @@ class LiteratureHarvester:
         all_papers = self._deduplicate(all_papers)
         deduplicated_count = len(all_papers)
 
-        # 3. 查询驱动批量评分
+        # 3. 查询驱动批量评分（纯作者/机构搜索时用作者/机构名作为评分回退）
+        scorer_query = query.strip() if query and query.strip() else (author or institution or "")
         scorer = QueryDrivenScorer()
-        scorer.prepare(query=query)
+        scorer.prepare(query=scorer_query)
 
         paper_dicts = [
             {"title": p.title, "abstract": p.abstract}
@@ -438,6 +488,10 @@ class LiteratureHarvester:
             scored_papers.sort(key=lambda x: (x[0].year is not None, x[0].year or 0), reverse=reverse)
         elif sort_by == "citations":
             scored_papers.sort(key=lambda x: (x[0].citation_count is not None, x[0].citation_count or 0), reverse=reverse)
+
+        # 4b. max_total 截断（跨源汇总后限制总篇数）
+        if max_total and len(scored_papers) > max_total:
+            scored_papers = scored_papers[:max_total]
 
         # 5. 批量查库
         in_library_map = await self._batch_check_in_library(scored_papers)
@@ -465,6 +519,7 @@ class LiteratureHarvester:
                 title=paper.title,
                 abstract=paper.abstract,
                 authors=paper.authors,
+                author_affiliations=paper.author_affiliations,
                 year=paper.year,
                 journal=paper.journal,
                 doi=paper.doi,
@@ -479,6 +534,14 @@ class LiteratureHarvester:
                 domain_score=fresult.domain_score,
                 in_library=in_library,
                 paper_id=paper_id,
+                tags=classify_paper_tags(
+                    title=paper.title,
+                    year=paper.year,
+                    citation_count=paper.citation_count,
+                    pubtype=(paper.raw or {}).get("pubtype"),
+                    journal=paper.journal,
+                    source=paper.source,
+                ),
             ))
 
         # 7. 推送最终结果
@@ -497,6 +560,7 @@ class LiteratureHarvester:
                     "title": h.title,
                     "abstract": h.abstract,
                     "authors": h.authors,
+                    "author_affiliations": h.author_affiliations,
                     "year": h.year,
                     "journal": h.journal,
                     "doi": h.doi,
@@ -597,6 +661,8 @@ class LiteratureHarvester:
         """根据来源名称获取对应的搜索函数。"""
         mapping = {
             "europe_pmc":       self.europe_pmc_client.search,
+            "pubmed":           self.pubmed_client.search,
+            "openalex":         self.openalex_client.search,
             "nature":           self.nature_client.search,
             "science":          self.science_client.search,
             "cell":             self.cell_client.search,
@@ -619,6 +685,11 @@ class LiteratureHarvester:
         max_results: int,
         enhance_query: bool,
         enhance_terms: list[str] | None,
+        author: str | None = None,
+        journal: str | None = None,
+        preprint_sources: list[str] | None = None,
+        institution: str | None = None,
+        language: str | None = None,
     ) -> list[PaperMetadata]:
         """从单个数据源搜索文献。"""
         search_fn = self._get_search_fn(source)
@@ -627,6 +698,18 @@ class LiteratureHarvester:
         if source == "europe_pmc":
             kwargs["enhance_query"] = enhance_query
             kwargs["enhance_terms"] = enhance_terms
+        if author:
+            kwargs["author"] = author
+        if journal:
+            kwargs["journal"] = journal
+        if preprint_sources and source == "openalex":
+            kwargs["preprint_sources"] = preprint_sources
+        # institution 仅 openalex / pubmed 支持，openalex 通过追加到 query 实现（无专用 filter）
+        if institution and source in ("openalex", "pubmed"):
+            kwargs["institution"] = institution
+        # language 仅 europe_pmc / pubmed / openalex 支持
+        if language and source in ("europe_pmc", "pubmed", "openalex"):
+            kwargs["language"] = language
 
         return search_fn(**kwargs)
 
@@ -754,9 +837,10 @@ class LiteratureHarvester:
             all_papers = self._deduplicate(all_papers)
             deduplicated_count = len(all_papers)
 
-            # ---- 3. 查询驱动批量评分 ----
+            # ---- 3. 查询驱动批量评分（纯作者/机构搜索时用作者名作为评分回退）----
+            scorer_query = query.strip() if query and query.strip() else (author or "")
             scorer = QueryDrivenScorer()
-            scorer.prepare(query=query)
+            scorer.prepare(query=scorer_query)
 
             paper_dicts = [
                 {"title": p.title, "abstract": p.abstract}
@@ -923,6 +1007,7 @@ def search_report_to_dict(report: SearchReport) -> dict[str, Any]:
                 "title": h.title,
                 "abstract": h.abstract,
                 "authors": h.authors,
+                "author_affiliations": h.author_affiliations,
                 "year": h.year,
                 "journal": h.journal,
                 "doi": h.doi,

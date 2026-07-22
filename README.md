@@ -1,6 +1,6 @@
-# ScholarFlow
+# ScholarFlow-Bio
 
-> 个人文献工作站 — 智能采集、语义检索、RAG 问答、文献综述，一站式本地运行。
+> 生物医学文献智能体 — 智能采集、语义检索、RAG 问答、文献综述，一站式本地运行。
 
 ---
 
@@ -8,14 +8,15 @@
 
 | 功能 | 说明 |
 |---|---|
-| **文献检索** | 自然语言或关键词搜索，LLM 自动提取关键词+领域，6 数据源并行检索，实时进度显示，支持按相关度/时间排序 |
-| **元数据查看** | 点击检索卡片弹出详情模态框，展示完整元数据，英文摘要自动翻译为中文 |
-| **一键入库** | 库外论文点击入库，后台自动完成 PDF 下载→解析→切块→索引 |
+| **文献检索** | 自然语言或关键词搜索，LLM 自动提取关键词+领域，8 数据源并行检索，实时进度显示，支持按相关度/时间/引用量排序 |
+| **作者检索** | 直接输入作者名查找其论文，支持中文名自动扩展为 8 种英文拼音变体（如"张爽"→Shuang Zhang / Zhang Shuang / …），无需填写关键词 |
+| **元数据查看** | 点击检索卡片弹出详情模态框，展示完整元数据（标题、作者、DOI、期刊、年份），英文摘要自动翻译为中文 |
+| **一键入库** | 库外论文点击入库，后台自动完成 PDF 下载→解析→切块→索引；Agent 对话中也可直接说"入库第3篇" |
 | **论文查看器** | 在线阅读全文（文本/PDF 双模式），显示本地存储路径 |
 | **文献库管理** | 查看所有入库文献及处理状态，支持查看源数据、上传 PDF、删除文献 |
 | **RAG 问答** | 对本地文献库提问，基于检索证据回答，附带引用来源 |
 | **文献综述** | 输入主题，自动检索相关文献并生成结构化 Markdown 综述 |
-| **Agent 对话** | 自然语言对话，Agent 自动决策调用 5 个工具，支持多轮上下文记忆 |
+| **Agent 对话** | 自然语言对话，Agent 自动调用 7 个工具（检索/入库/问答/综述/网页搜索），支持多轮记忆、快速/深度搜索模式 |
 
 ---
 
@@ -38,12 +39,14 @@
 | **Docker Desktop** | 最新版 | 运行 PostgreSQL 容器 |
 | **Node.js** | 18+ | 仅修改前端代码时需要 |
 
-### LLM 后端（二选一）
+### LLM 后端（四选一）
 
 | 方式 | 配置 | 适用场景 |
 |---|---|---|
 | **Ollama 本地** | 安装 Ollama + `ollama pull qwen3:8b` | 离线使用，无需 API Key |
-| **云端 API** | `.env` 中设置 `LLM_BACKEND=deepseek` + `CLOUD_API_KEY` | 更快响应，无本地显存要求 |
+| **DeepSeek 云端** | `.env` 中设置 `LLM_BACKEND=deepseek` + `CLOUD_API_KEY` | 更快响应，无本地显存要求 |
+| **OpenAI 云端** | `.env` 中设置 `LLM_BACKEND=openai` + `CLOUD_API_KEY` | 使用 GPT 系列模型 |
+| **Qwen 百炼** | `.env` 中设置 `LLM_BACKEND=qwen` + `CLOUD_API_KEY` | 阿里云通义千问 API |
 
 ### Embedding 模型
 
@@ -190,31 +193,60 @@ HF_HUB_OFFLINE=1                      # 1=离线加载，不联网验证
 
 ## API 接口
 
+### 核心接口
+
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `GET` | `/health` | 健康检查（含 LLM/Embedding 状态） |
-| `GET` | `/stats` | 数据库统计 |
-| `POST` | `/search` | 跨源文献检索 |
-| `POST` | `/search/stream` | 流式检索（SSE 实时进度） |
+| `GET` | `/stats` | 数据库统计（文献/切片/化合物/谱图） |
+| `POST` | `/search` | 跨源文献检索（8 数据源，支持自然语言+作者+期刊过滤） |
+| `POST` | `/search/stream` | 流式检索（SSE 实时进度推送） |
 | `POST` | `/translate` | 英文摘要翻译为中文 |
-| `POST` | `/ask` | RAG 问答 |
+| `POST` | `/ask` | RAG 问答（基于本地文献库） |
 | `POST` | `/review` | 文献综述生成 |
-| `POST` | `/agent/chat` | Agent 对话 |
-| `GET` | `/agent/sessions` | 会话列表 |
-| `GET` | `/agent/sessions/{id}` | 会话详情 |
-| `DELETE` | `/agent/sessions/{id}` | 删除会话 |
-| `GET` | `/papers` | 文献库列表 |
-| `GET` | `/papers/{id}` | 文献详情 |
-| `GET` | `/papers/{id}/text` | 文献全文 |
-| `GET` | `/papers/{id}/pdf` | 下载 PDF |
+| `POST` | `/chunks/search` | 检索文本块（不调用 LLM） |
+| `POST` | `/rag/warmup` | 预热 embedding + FAISS 索引 |
+
+### 文献库管理
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/papers` | 文献库列表（支持分页/状态/评分过滤） |
+| `GET` | `/papers/{id}` | 文献详情（完整元数据 + 处理状态） |
+| `GET` | `/papers/{id}/text` | 文献全文（chunks 拼接） |
+| `GET` | `/papers/{id}/pdf` | 下载 PDF 原文 |
 | `GET` | `/papers/{id}/chunks` | 文本块列表 |
-| `POST` | `/papers/import` | 文献入库 |
-| `POST` | `/papers/{id}/process` | 触发后台流水线 |
-| `POST` | `/papers/{id}/upload-pdf` | 上传 PDF |
-| `POST` | `/papers/upload-pdf` | 独立上传 PDF 入库 |
-| `DELETE` | `/papers/{id}` | 删除文献（含本地文件） |
-| `POST` | `/chunks/search` | 检索文本块 |
-| `POST` | `/rag/warmup` | 预热 embedding + FAISS |
+| `POST` | `/papers/import` | 文献入库（仅 metadata） |
+| `POST` | `/papers/upload-pdf` | 独立上传 PDF 入库（自动触发流水线） |
+| `POST` | `/papers/{id}/process` | 触发后台流水线（下载→解析→切块→索引） |
+| `POST` | `/papers/{id}/upload-pdf` | 为已有文献上传 PDF |
+| `DELETE` | `/papers/{id}` | 删除文献（含数据库记录+本地文件） |
+
+### Agent 对话
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/agent/chat` | Agent 对话（多轮记忆，7 工具自动调度） |
+| `GET` | `/agent/sessions` | 会话列表 |
+| `GET` | `/agent/sessions/{id}` | 会话详情（完整消息历史） |
+| `DELETE` | `/agent/sessions/{id}` | 删除会话 |
+
+### 管理工具
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/admin/clear-sessions` | 清空所有 Agent 会话 |
+| `POST` | `/admin/clear-all` | 清除全部数据（文献+PDF+索引+会话，不可恢复） |
+
+### 处理流水线
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/pipeline/crawl-literature` | 采集文献 metadata（多数据源+去重+评分） |
+| `POST` | `/pipeline/download-pdfs` | 批量下载开放获取 PDF |
+| `POST` | `/pipeline/parse-pdfs` | 批量解析 PDF → 结构化 JSON |
+| `POST` | `/pipeline/build-chunks` | 批量构建文本块 |
+| `POST` | `/pipeline/build-index` | 批量向量化 + FAISS 索引构建 |
 
 ---
 
@@ -223,8 +255,10 @@ HF_HUB_OFFLINE=1                      # 1=离线加载，不联网验证
 | 数据源 | 后端 | 说明 |
 |---|---|---|
 | Europe PMC | Europe PMC REST API | 通用生物医学（Nature/Science/Cell 底层也走此 API） |
+| PubMed | NCBI E-utilities API | MEDLINE 文献，含 MeSH 主题词和 Publication Type |
 | Semantic Scholar | S2 Graph API | 通用学术搜索，2 亿+ 论文 |
 | arXiv | arXiv API | 预印本 |
+| OpenAlex | OpenAlex REST API | 跨学科学术搜索，2.5 亿+ 作品，含引用计数 |
 | Nature | Europe PMC + 期刊过滤 | Nature 系列期刊 |
 | Science | Europe PMC + 期刊过滤 | Science 系列期刊 |
 | Cell | Europe PMC + 期刊过滤 | Cell Press 期刊 |
@@ -235,11 +269,31 @@ HF_HUB_OFFLINE=1                      # 1=离线加载，不联网验证
 
 | 工具 | 说明 |
 |---|---|
-| `search_papers` | 跨源检索论文（支持自然语言） |
+| `search_papers` | 跨源检索论文（支持自然语言 + 作者名筛选，中文名自动拼音扩展） |
 | `list_library` | 查看本地已入库文献列表 |
 | `view_paper` | 查看库中论文全文 |
 | `ask_paper` | RAG 问答（基于本地文献库） |
 | `write_review` | 撰写文献综述 |
+| `web_search` | 网页搜索引擎（DuckDuckGo），补充学术 API 覆盖不到的来源 |
+| `import_paper` | 将论文导入本地文献库（Agent 可直接入库） |
+
+### 搜索深度
+
+| 模式 | 说明 |
+|---|---|
+| **深度搜索（deep）** | 返回完整 metadata 表格（标题/作者/年份/期刊/DOI），搜索后主动提供入库建议 |
+| **快速搜索（quick）** | 仅返回标题和年份，回复简洁 |
+
+### 中文作者名自动扩展
+
+输入中文名（如"张爽"）时，自动生成 8 种英文拼音变体并发起 OR 查询：
+
+```
+Shuang Zhang / Zhang Shuang / ZhangShuang / Zhangshuang /
+shuangzhang / zhangshuang / ShuangZhang / Shuangzhang
+```
+
+英文名（如"Hinton"）不做扩展，直接精确查询。
 
 ---
 
@@ -250,7 +304,11 @@ data/
 ├── sessions.json    # Agent 对话会话持久化
 ├── index/           # FAISS 向量索引 + chunk 元数据
 ├── papers/          # 下载的 PDF 原文
-└── texts/           # PDF 解析后的结构化 JSON
+├── pdfs/            # 手动上传的 PDF 文件
+├── texts/           # PDF 解析后的结构化 JSON
+├── compounds/       # 化合物数据（预留）
+├── spectra/         # 谱图数据（预留）
+└── db/              # 数据库文件（预留）
 ```
 
 ---
@@ -262,10 +320,12 @@ data/
                       ├── LangChain Agent
                       │   ├── search_papers / list_library
                       │   ├── view_paper / ask_paper / write_review
-                      │   └── LLM: Ollama / DeepSeek 可切换
-                      ├── 文献采集层（6 数据源，并行检索）
+                      │   ├── web_search / import_paper
+                      │   └── LLM: Ollama / DeepSeek / OpenAI / Qwen 可切换
+                      ├── 文献采集层（8 数据源，并行检索）
                       ├── 文档处理层（PDF 解析 → 切块）
                       ├── RAG 引擎（BGE-M3 + FAISS）
+                      ├── 配置管理（.env + 运行时校验）
                       └── PostgreSQL 存储
 ```
 
@@ -273,10 +333,13 @@ data/
 |---|---|
 | 后端 | FastAPI + SQLAlchemy async + asyncpg |
 | 前端 | React 18 + TypeScript + Vite + Tailwind CSS |
-| LLM | Ollama (qwen3:8b) / DeepSeek (deepseek-chat) |
-| Embedding | BGE-M3 (sentence-transformers) |
-| 向量检索 | FAISS |
-| Agent | LangChain create_agent + langchain-ollama + langchain-openai |
+| LLM | Ollama (qwen3:8b) / DeepSeek (deepseek-chat) / OpenAI / Qwen 百炼 |
+| Embedding | BGE-M3 (sentence-transformers)，启动后台预热，~6s 就绪 |
+| 向量检索 | FAISS (CPU) |
+| Agent | LangChain create_agent + 7 tools（含 web_search / import_paper） |
+| 网页搜索 | DuckDuckGo（ddgs），零配置免费使用 |
+| 中文拼音 | pypinyin，自动扩展中文作者名为 8 种英文变体 |
+| 文献源 | Europe PMC / PubMed / Semantic Scholar / arXiv / OpenAlex / Nature / Science / Cell |
 | 数据库 | PostgreSQL 16 (Docker) |
 | PDF 解析 | PyMuPDF |
 
@@ -288,27 +351,40 @@ data/
 ScholarFlow/
 ├── app/
 │   ├── agent/                    # LangChain Agent
-│   │   ├── agent.py              # Agent 工厂 + 会话管理
-│   │   ├── tools.py              # 5 个 Tool 定义
-│   │   └── keyword_extractor.py  # LLM 关键词提取
+│   │   ├── agent.py              # Agent 工厂 + 会话管理 + 搜索深度
+│   │   ├── tools.py              # 7 个 Tool 定义
+│   │   ├── keyword_extractor.py  # LLM 关键词提取
+│   │   ├── web_search.py         # DuckDuckGo 网页搜索
+│   │   └── name_utils.py         # 中文作者名拼音扩展
 │   ├── harvest/                  # 文献采集层
 │   │   ├── harvester.py          # 采集总控（并行检索+去重+评分）
-│   │   └── literature/           # 6 个数据源客户端
+│   │   └── literature/           # 8 个数据源客户端
+│   │       ├── europe_pmc_client.py
+│   │       ├── pubmed_client.py
+│   │       ├── semantic_scholar_client.py
+│   │       ├── arxiv_client.py
+│   │       ├── openalex_client.py
+│   │       ├── nature_client.py
+│   │       ├── science_client.py
+│   │       └── cell_client.py
 │   ├── document/                 # PDF 解析 + 章节识别 + 切块
-│   ├── domain/                   # 语义评分（查询驱动）
+│   ├── domain/                   # 语义评分（查询驱动）+ 论文标签
 │   ├── rag/                      # RAG 引擎（embedding+检索+生成）
 │   ├── services/                 # 业务服务层
 │   ├── storage/                  # 数据库 ORM + 文件存储 + 仓库
 │   ├── api/                      # 流水线路由
-│   └── main.py                   # FastAPI 入口（27 个端点）
+│   ├── config.py                 # 配置管理（.env 加载+校验）
+│   ├── llm_factory.py            # LLM 工厂（ollama/deepseek/openai/qwen）
+│   └── main.py                   # FastAPI 入口（30+ 端点）
 ├── frontend/                     # React 前端
 │   └── src/
 │       ├── pages/                # 6 个页面
-│       ├── components/           # 通用组件
+│       ├── components/           # 通用组件 + 流水线进度
 │       ├── hooks/                # React Query hooks
 │       └── lib/                  # API 调用层 + 类型定义
-├── scripts/                      # 命令行工具
+├── scripts/                      # 命令行工具（10 个脚本）
 ├── requirements/                 # GPU 分架构依赖文件
+├── embedding/                    # BGE-M3 本地模型
 ├── data/                         # 运行时数据
 ├── start.bat                     # 一键启动
 ├── install_deps.bat              # GPU 智能依赖安装
@@ -323,6 +399,6 @@ ScholarFlow/
 
 **Q: 修改前端代码后没变化？** 执行 `cd frontend && npm run build` 重新构建。
 
-**Q: 如何切换 LLM？** 修改 `.env` 中 `LLM_BACKEND`（`ollama` 或 `deepseek`），重启服务。
+**Q: 如何切换 LLM？** 修改 `.env` 中 `LLM_BACKEND`（`ollama` / `deepseek` / `openai` / `qwen`），重启服务。
 
-**Q: 检索很慢？** 已优化为多源并行检索 + GPU embedding。3 个源约 4 秒。
+**Q: 检索很慢？** 已优化为多源并行检索 + GPU embedding。8 个源约 5~8 秒。

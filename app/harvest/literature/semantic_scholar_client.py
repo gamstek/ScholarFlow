@@ -86,6 +86,7 @@ class SemanticScholarClient:
         page_size: int = 25,
         year_from: Optional[int] = None,
         year_to: Optional[int] = None,
+        author: Optional[str] = None,
     ) -> list[PaperMetadata]:
         """
         搜索 Semantic Scholar 文献。
@@ -96,15 +97,26 @@ class SemanticScholarClient:
             page_size: 每页请求数量（Semantic Scholar 最大 100）。
             year_from: 发表年份下限（含），可选。
             year_to: 发表年份上限（含），可选。
+            author: 按作者名过滤。通过引用号精确匹配嵌入 query。
 
         返回：
             PaperMetadata 列表。
         """
-        if not query or not query.strip():
+        if (not query or not query.strip()) and (not author or not author.strip()):
             raise ValueError("query 不能为空。")
 
         if max_results <= 0:
             return []
+
+        if author and author.strip():
+            from app.agent.name_utils import expand_chinese_name
+            variants = expand_chinese_name(author)
+            if len(variants) == 1:
+                author_clause = f'"{variants[0]}"'
+            else:
+                clauses = [f'"{v}"' for v in variants]
+                author_clause = f'(" OR ".join(clauses))'
+            query = f'{author_clause} {query}' if query.strip() else author_clause
 
         page_size = max(1, min(page_size, 100))
 

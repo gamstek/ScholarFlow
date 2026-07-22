@@ -30,6 +30,7 @@ def search_papers(
     query: str,
     sources: str = "europe_pmc",
     max_results: int = 20,
+    author: str | None = None,
 ) -> str:
     """
     检索学术论文。输入自然语言或关键词，返回相关论文列表（含评分、DOI、在库状态）。
@@ -38,6 +39,7 @@ def search_papers(
         query: 检索关键词或自然语言描述。
         sources: 数据源，逗号分隔。可选：europe_pmc, nature, science, cell, arxiv, semantic_scholar
         max_results: 每个数据源最大检索数量。
+        author: 按作者名过滤。例如 "Geoffrey Hinton"。可选。
 
     返回：
         JSON 字符串，包含检索结果列表。
@@ -65,6 +67,7 @@ def search_papers(
         max_results=max_results,
         keywords=keywords,
         domain=domain,
+        author=author,
     ))
 
     # 精简输出，避免 token 过长
@@ -77,6 +80,7 @@ def search_papers(
         "results": [
             {
                 "title": r.get("title", ""),
+                "authors": r.get("authors"),
                 "doi": r.get("doi"),
                 "year": r.get("year"),
                 "journal": r.get("journal"),
@@ -214,12 +218,9 @@ def ask_paper(question: str, top_k: int = 5) -> str:
 
     engine = LocalRagEngine(
         embedding_model_name=DEFAULT_EMBEDDING_MODEL,
-        ollama_model="qwen3:8b",
-        ollama_base_url="http://localhost:11434",
         temperature=0.2,
         num_ctx=4096,
         num_predict=512,
-        think=False,
     )
 
     result = asyncio.run(engine.ask(
@@ -269,7 +270,91 @@ def write_review(topic: str, top_k: int = 10) -> str:
 
 
 # ============================================================
+# 5. 网页搜索
+# ============================================================
+
+@tool
+def web_search(
+    query: str,
+    max_results: int = 10,
+) -> str:
+    """
+    通过网页搜索引擎查找信息。适用于：
+    - 搜索特定作者发表的论文（补充文献 API 覆盖不到的来源）
+    - 查找论文的个人主页、Google Scholar 档案、机构仓库等
+    - 查找 API 数据库未收录的出版物
+
+    参数：
+        query: 搜索查询字符串。建议使用 "作者名 论文" 或 "作者名 publications" 格式。
+        max_results: 最大返回结果数，默认 10。
+
+    返回：
+        JSON 字符串，包含搜索结果的标题、摘要片段和 URL。
+    """
+    from app.agent.web_search import get_searcher
+
+    searcher = get_searcher()
+    results = searcher.search(query=query, max_results=max_results)
+
+    summary = {
+        "query": query,
+        "total": len(results),
+        "results": results,
+    }
+
+    return json.dumps(summary, ensure_ascii=False, indent=2)
+
+
+# ============================================================
+# 6. 单篇论文入库
+# ============================================================
+
+@tool
+def import_paper(
+    title: str,
+    authors: str | None = None,
+    doi: str | None = None,
+    year: int | None = None,
+    journal: str | None = None,
+    source: str = "agent_import",
+) -> str:
+    """
+    将一篇论文导入本地文献库。用户说"入库"、"保存"、"加入文库"时使用。
+
+    参数：
+        title: 论文标题（必填）。
+        authors: 作者列表，逗号分隔。例如 "Geoffrey Hinton, Yann LeCun"。可选。
+        doi: DOI 号。可选。
+        year: 发表年份。可选。
+        journal: 期刊/会议名称。可选。
+        source: 来源标记，默认 "agent_import"。
+
+    返回：
+        JSON 字符串，包含入库结果（paper_id、状态）。
+    """
+    from app.services.pipeline_service import import_single_paper_service
+
+    author_list = [a.strip() for a in authors.split(",")] if authors else None
+
+    result = asyncio.run(import_single_paper_service(
+        title=title,
+        authors=author_list,
+        doi=doi,
+        year=year,
+        journal=journal,
+        source=source,
+    ))
+
+    return json.dumps({
+        "paper_id": result.get("paper_id"),
+        "title": result.get("title"),
+        "status": result.get("status"),
+        "message": result.get("message", "入库成功"),
+    }, ensure_ascii=False, indent=2)
+
+
+# ============================================================
 # Tool 列表
 # ============================================================
 
-ALL_TOOLS = [search_papers, list_library, view_paper, ask_paper, write_review]
+ALL_TOOLS = [search_papers, list_library, view_paper, ask_paper, write_review, web_search, import_paper]

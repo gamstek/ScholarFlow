@@ -42,6 +42,7 @@ class PaperMetadata:
     title: str
     abstract: Optional[str] = None
     authors: Optional[list[str]] = None
+    author_affiliations: Optional[list[dict]] = None
     year: Optional[int] = None
     journal: Optional[str] = None
     doi: Optional[str] = None
@@ -119,6 +120,9 @@ class EuropePmcClient:
         page_size: int = 25,
         enhance_query: bool = True,
         enhance_terms: list[str] | None = None,
+        author: str | None = None,
+        journal: str | None = None,
+        language: str | None = None,
     ) -> list[PaperMetadata]:
         """
         搜索 Europe PMC 文献。
@@ -141,16 +145,37 @@ class EuropePmcClient:
                 增强检索时使用的方向词列表。
                 为 None 时不增强。
 
+            author:
+                按作者名过滤。Europe PMC 支持 AUTH:"Name" 语法。
+                为 None 时不限定作者。
+
+            journal:
+                按期刊名过滤。Europe PMC 支持 JOURNAL:"Name" 语法。
+                为 None 时不限定期刊。
+
         返回：
             PaperMetadata 列表。
         """
-        if not query or not query.strip():
+        if (not query or not query.strip()) and (not author or not author.strip()):
             raise ValueError("query 不能为空。")
 
         if max_results <= 0:
             return []
 
         page_size = max(1, min(page_size, 1000))
+
+        if author and author.strip():
+            from app.agent.name_utils import build_author_or_query
+            author_q = build_author_or_query(author, "AUTH")
+            query = f'{author_q} {query}' if query.strip() else author_q
+
+        if journal and journal.strip():
+            query = f'JOURNAL:"{journal.strip()}" {query}' if query.strip() else f'JOURNAL:"{journal.strip()}"'
+
+        if language and language.strip() in ("zh", "chi"):
+            query = f'LANG:"chi" {query}' if query.strip() else 'LANG:"chi"'
+        elif language and language.strip() == "en":
+            query = f'LANG:"eng" {query}' if query.strip() else 'LANG:"eng"'
 
         final_query = (
             build_enhanced_query(query, enhance_terms)

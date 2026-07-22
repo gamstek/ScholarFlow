@@ -7,8 +7,8 @@ LLM 关键词提取服务。
 1. 检索关键词列表（英文，用于多源文献检索）
 2. 领域标签（中文，用于前端展示）
 
-调用 OllamaGenerator._call_ollama_chat() 实现。
-JSON 解析失败时兜底：直接用原句作为关键词。
+通过 llm_factory.create_raw_llm() 统一调用 LLM，
+不再硬编码 Ollama。JSON 解析失败时兜底：直接用原句作为关键词。
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from app.rag.generator import OllamaGenerator, extract_chat_answer
+from app.llm_factory import create_raw_llm
 
 
 @dataclass
@@ -69,20 +69,16 @@ _USER_PROMPT_TEMPLATE = """
 
 def extract_keywords(
     natural_query: str,
-    ollama_model: str = "qwen3:8b",
-    ollama_base_url: str = "http://localhost:11434",
     temperature: float = 0.2,
-    timeout: int = 120,
 ) -> ExtractionResult:
     """
     从自然语言句子中提取检索关键词和领域标签。
 
+    LLM 后端由 AppConfig.llm_backend 统一控制（不再硬编码 Ollama）。
+
     参数：
         natural_query: 用户的自然语言输入。
-        ollama_model: Ollama 模型名称。
-        ollama_base_url: Ollama 服务地址。
         temperature: 生成温度。
-        timeout: 请求超时秒数。
 
     返回：
         ExtractionResult。
@@ -95,34 +91,24 @@ def extract_keywords(
             used_fallback=True,
         )
 
-    generator = OllamaGenerator(
-        model=ollama_model,
-        base_url=ollama_base_url,
-        timeout=timeout,
-        temperature=temperature,
-        num_ctx=2048,
-        num_predict=512,
-        think=False,
-        force_no_think_prefix=True,
-        debug=False,
-    )
-
     user_prompt = _USER_PROMPT_TEMPLATE.format(
         few_shot=_FEW_SHOT_EXAMPLES,
         user_input=natural_query.strip(),
     )
 
     try:
-        raw_response = generator._call_ollama_chat(
+        client = create_raw_llm()
+        answer = client.chat(
             system_prompt=_SYSTEM_PROMPT,
-            user_prompt="/no_think\n" + user_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=512,
         )
-        answer = extract_chat_answer(raw_response)
     except Exception as exc:
-        return _fallback(natural_query, f"Ollama 调用失败：{exc}")
+        return _fallback(natural_query, f"LLM 调用失败：{exc}")
 
     if not answer:
-        return _fallback(natural_query, "Ollama 返回为空")
+        return _fallback(natural_query, "LLM 返回为空")
 
     parsed = _parse_json_response(answer)
 

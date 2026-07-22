@@ -48,7 +48,7 @@ INDEX_DIR = DATA_DIR / "index"
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+asyncpg://postgres:scholarflow@localhost:5432/scholarflow",
+    "postgresql+asyncpg://postgres:scholarflow@127.0.0.1:5433/scholarflow",
 )
 
 async_engine = create_async_engine(
@@ -110,6 +110,7 @@ async def init_db() -> None:
 
     # 数据库迁移：已有表新增列（create_all 对已有表不会自动新增列）
     async with async_engine.begin() as conn:
+        # crawl_tasks 表迁移
         await conn.execute(
             text(
                 "ALTER TABLE crawl_tasks ADD COLUMN IF NOT EXISTS agent_state TEXT;"
@@ -118,6 +119,32 @@ async def init_db() -> None:
         await conn.execute(
             text(
                 "ALTER TABLE crawl_tasks ADD COLUMN IF NOT EXISTS parent_task_id INTEGER;"
+            )
+        )
+        # papers 表迁移（从旧版本升级时可能缺失的列）
+        await conn.execute(
+            text(
+                "ALTER TABLE papers ADD COLUMN IF NOT EXISTS citation_count INTEGER;"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE papers ADD COLUMN IF NOT EXISTS crossref_id VARCHAR(200);"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE papers ADD COLUMN IF NOT EXISTS domain_score FLOAT DEFAULT 0.0;"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE papers ADD COLUMN IF NOT EXISTS pipeline_step VARCHAR(50);"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE papers ADD COLUMN IF NOT EXISTS pipeline_error TEXT;"
             )
         )
 

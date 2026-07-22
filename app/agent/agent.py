@@ -20,8 +20,6 @@ from pathlib import Path
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain_ollama import ChatOllama
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from app.agent.tools import ALL_TOOLS
@@ -40,23 +38,38 @@ _SESSIONS_FILE = Path(__file__).resolve().parents[2] / "data" / "sessions.json"
 
 _AGENT_SYSTEM_PROMPT = """你是 ScholarFlow 文献工作站助手。你可以帮助用户检索论文、查看论文全文、回答论文相关问题、撰写文献综述。
 
-你可以使用以下工具：
-1. search_papers — 检索学术论文，输入关键词或自然语言描述
-2. list_library — 查看本地已入库的文献列表
-3. view_paper — 查看库中论文的全文内容（需要 paper_id）
-4. ask_paper — 对本地文献库进行 RAG 问答
-5. write_review — 根据主题撰写文献综述
+## 工具列表
 
-使用规则：
-- 用户想"找论文"、"搜索"、"检索"时，使用 search_papers
-- 用户问"库里有什么"、"有哪些论文"、"文献库"时，使用 list_library
-- 用户想"看全文"、"读论文"时，先用 list_library 或 search_papers 找到 paper_id，再用 view_paper
-- 用户提问论文内容时，使用 ask_paper
-- 用户想"写综述"、"总结"时，使用 write_review
-- 回答用中文，保留英文专业术语
-- 保持简洁，不要过度解释
+1. **search_papers** — 检索学术论文，支持按关键词/自然语言/作者名（author 参数）搜索。返回 metadata（标题、作者、DOI、年份、期刊、在库状态等）。
+2. **list_library** — 查看本地已入库的文献列表。
+3. **view_paper** — 查看库中论文全文（需 paper_id）。
+4. **ask_paper** — 对本地文献库进行 RAG 问答。
+5. **write_review** — 根据主题撰写文献综述。
+6. **web_search** — 网页搜索引擎，补充 API 覆盖不到的来源（个人主页、Google Scholar 等）。
+7. **import_paper** — 将论文导入本地文献库（入库/保存）。
 
-你可以参考之前的对话历史来理解用户的上下文意图。如果用户说"上面那篇"、"继续找"等指代词，请结合历史消息理解。
+## 回复格式要求（非常重要）
+
+### 论文检索结果格式
+每次返回论文列表时，必须使用以下 Markdown 表格格式，确保用户能看到完整信息：
+
+```
+| # | 标题 | 作者 | 年份 | 期刊 | DOI | 状态 |
+|---|------|------|------|------|-----|------|
+| 1 | xxx  | xxx  | 2023 | Nature | 10.xxx/xxx | 未入库 |
+```
+
+### 快速搜索 vs 深度搜索
+- **快速搜索（search_depth=quick）**：只列出标题和年份，回复简洁。用户说"快速找"、"简单搜"、"随便看看"时用此模式。
+- **深度搜索（search_depth=deep，默认）**：返回完整 metadata（标题、作者、年份、期刊、DOI、来源），并提供入库建议。用户说"详细"、"深入"、"帮我找论文"时用此模式。
+
+### 核心规则
+1. **必须返回 metadata**：每次展示论文，至少包含标题和作者。不能只返回作者名或只说"找到了XX的论文"而不列具体信息。
+2. **无法获取的字段留空**：DOI、期刊等缺失时填"无"或留空，不要编造。
+3. **搜索后提供入库选项**：每轮论文检索结束后，告诉用户"如需入库某篇，请告诉我要入库的编号或标题"。
+4. **已入库的标注**：paper_id 不为空或 in_library=true 的论文标注为"已入库"。
+5. **组合搜索**：查作者论文时，同时调用 search_papers(author=...) 和 web_search，整合结果。
+6. **回答用中文**，保留英文专业术语。保持结构清晰，不要过度解释。
 """
 
 
@@ -219,52 +232,25 @@ _AGENT_CACHE: dict[str, Any] = {}
 
 
 def get_agent(
-    model: str = "qwen3:8b",
-    base_url: str = "http://localhost:11434",
     temperature: float = 0.3,
     num_ctx: int = 4096,
 ) -> Any:
     """
     获取（或创建）Agent 单例。
 
-    根据 LLM_BACKEND 环境变量自动选择：
-    - deepseek → ChatOpenAI (兼容 DeepSeek API)
-    - ollama   → ChatOllama (本地)
+    通过 llm_factory.create_chat_model() 统一创建 LLM，
+    LLM 后端和模型名由 AppConfig 统一管理（不再通过参数传入）。
     """
-    llm_backend = os.getenv("LLM_BACKEND", "ollama")
+    from app.llm_factory import create_chat_model
+    from app.config import get_config
 
-    if llm_backend == "deepseek":
-        api_key = os.getenv("CLOUD_API_KEY", "")
-        api_base = os.getenv("CLOUD_API_BASE", "https://api.deepseek.com/v1")
-        cloud_model = os.getenv("CLOUD_MODEL", "deepseek-chat")
-        cache_key = f"deepseek::{cloud_model}::{temperature}"
+    cfg = get_config()
 
-        if cache_key not in _AGENT_CACHE:
-            llm = ChatOpenAI(
-                model=cloud_model,
-                base_url=api_base,
-                api_key=api_key,
-                temperature=temperature,
-                max_tokens=4096,
-            )
-            _AGENT_CACHE[cache_key] = create_agent(
-                model=llm,
-                tools=ALL_TOOLS,
-                system_prompt=_AGENT_SYSTEM_PROMPT,
-            )
-        return _AGENT_CACHE[cache_key]
-
-    # Ollama 本地模式
-    cache_key = f"ollama::{model}::{base_url}::{temperature}::{num_ctx}"
+    # 缓存 key：后端 + 温度（模型名由 config 统一管理）
+    cache_key = f"{cfg.llm_backend}::{cfg.active_model_name}::{temperature}"
 
     if cache_key not in _AGENT_CACHE:
-        llm = ChatOllama(
-            model=model,
-            base_url=base_url,
-            temperature=temperature,
-            num_ctx=num_ctx,
-        )
-
+        llm = create_chat_model(temperature=temperature, num_ctx=num_ctx)
         _AGENT_CACHE[cache_key] = create_agent(
             model=llm,
             tools=ALL_TOOLS,
@@ -281,6 +267,7 @@ def run_agent(
     base_url: str = "http://localhost:11434",
     temperature: float = 0.3,
     num_ctx: int = 4096,
+    search_depth: str = "deep",
 ) -> dict[str, Any]:
     """
     运行 Agent 对话（支持多轮上下文记忆）。
@@ -288,10 +275,11 @@ def run_agent(
     参数：
         message: 用户消息。
         session_id: 会话 ID。为 None 则自动创建新会话。
-        model: Ollama 模型名称。
-        base_url: Ollama 服务地址。
+        model: （已弃用）LLM 后端和模型由 .env 中 LLM_BACKEND 统一控制，此参数不再生效。
+        base_url: （已弃用）同上。
         temperature: 生成温度。
         num_ctx: 上下文窗口大小。
+        search_depth: 搜索深度。"quick"=快速（仅标题），"deep"=深度（完整 metadata + 入库建议）。
 
     返回：
         dict，包含：
@@ -302,21 +290,27 @@ def run_agent(
     # 获取或创建会话
     sid = SessionManager.get_or_create_session(session_id)
 
-    # 记录用户消息
+    # 根据搜索深度注入前置指令
+    if search_depth == "quick":
+        depth_instruction = "[搜索深度：快速] 只需列出标题和年份，回复简洁。\n"
+    else:
+        depth_instruction = "[搜索深度：深度] 请返回完整 metadata（标题、作者、年份、期刊、DOI），用表格展示，检索结束后主动提供入库选项。\n"
+
+    augmented_message = depth_instruction + message
+
+    # 记录用户消息（原始消息，不含注入指令）
     SessionManager.add_message(sid, "human", message)
 
     # 获取历史上下文
     chat_history = SessionManager.get_history(sid)
 
     agent = get_agent(
-        model=model,
-        base_url=base_url,
         temperature=temperature,
         num_ctx=num_ctx,
     )
 
-    # 构建消息列表：历史 + 当前输入
-    messages = list(chat_history) + [HumanMessage(content=message)]
+    # 构建消息列表：历史 + 当前输入（含深度指令）
+    messages = list(chat_history) + [HumanMessage(content=augmented_message)]
 
     result = agent.invoke({"messages": messages})
 

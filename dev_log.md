@@ -22,6 +22,44 @@
 
 ## 开发时间线
 
+### 2026-07-22
+
+代码生成(app/harvest, app/services, app/main.py, frontend): 新增机构筛选功能
+
+- 新建 `author_utils.py`：向后兼容的 `authors_json` 解析器，支持旧 `list[str]` 和新 `list[{name, institution}]` 格式。
+- `PaperMetadata` 新增 `author_affiliations` 字段。
+- OpenAlex 客户端：解析 `authorships[].institutions[]` 并支持 `raw_affiliation_string.search` 过滤。
+- PubMed 客户端：新增 `[AD]` 机构检索和 affiliation 解析。
+- `SearchHit` 新增 `author_affiliations` 字段；`search_only()`/`search_only_stream()`/`_search_one_source()` 全链路透传 `institution` 参数。
+- `main.py`：`SearchRequest` 新增 `institution` 字段；新增 `GET /institutions` 端点（从本地库聚合机构排名，按出现频率降序）。
+- 前端 `SearchPage.tsx`：新增机构输入框（combobox 模式，支持自由输入 + 预设下拉列表）；`api.ts` 新增 `getInstitutions()`。
+
+调试(harvester): 修复纯作者/机构搜索时 scorer.prepare() 收到空 query 导致 ValueError
+
+调试(openalex, harvester): 修复 institution 参数无条件透传给不支持的源导致 TypeError；OpenAlex 机构过滤改为搜索词追加（原 raw_affiliation_string.search filter 无效）
+
+代码生成(app/harvest, app/services, app/main.py, frontend): 新增文献语言筛选功能。支持中文/外文/中外文三种模式。Europe PMC 使用 LANG:chi/eng，PubMed 使用 chinese[LA]/english[LA]，OpenAlex 使用 language:zh/en filter。前端新增语言切换按钮组
+
+代码生成(app/harvest, app/main.py, frontend): 新增检索篇数"每源/总计"双模式。每源模式预设 5/10/20/50/100 篇；总计模式跨源汇总后截断至指定篇数。默认改为 10 篇/源
+
+调试(start.bat): 修复 conda Python 路径检测缺陷，解决双击 start.bat 无法唤起后端
+
+- 根因：`for /f "tokens=*"` 将 `conda info --envs` 输出的整行（含大量空格）当作一个字符串，导致 `if exist "%%j\python.exe"` 检查的路径无效。
+- 修复：内层循环从 `tokens=*` 改为 `tokens=1*`，按空格拆分列：`%%i`=环境名, `%%j`=路径（同时移除了多余的内层嵌套循环）。
+- 验证：`tokens=1*` 正确提取 `C:\Users\HP\.conda\envs\scholarflow`，`python.exe` 存在性检查通过。
+
+文档生成(README): 根据当前项目状态全面更新 README.md
+
+- 数据源数量从 6 更新为 8（新增 PubMed、OpenAlex）。
+- LLM 后端从"二选一"更新为"四选一"（新增 OpenAI、Qwen 百炼）。
+- API 接口表重新分组为「核心接口/文献库管理/Agent 对话/管理工具/处理流水线」，补充 `/papers/upload-pdf`、`/admin/clear-sessions`、`/admin/clear-all`、`/pipeline/*` 等端点。
+- 技术架构图新增 web_search/import_paper 工具、配置管理层、PubMed/OpenAlex 数据源。
+- 技术栈表新增「文献源」行，列出全部 8 个数据源。
+- 项目结构树展开 `literature/` 下 8 个客户端文件，新增 `config.py`、`llm_factory.py`、`embedding/` 目录。
+- 数据目录新增 `pdfs/`、`compounds/`、`spectra/`、`db/` 预留目录。
+- Embedding 预热时间从 0.6s 修正为 ~6s（后台线程预热）。
+- 常见问题更新 LLM 切换选项和检索耗时估算。
+
 ### 2026-07-13
 
 重构(embedding): 新建 embedding/ 本地模型目录，统一全项目 BGE-M3 路径解析
@@ -48,6 +86,15 @@
 - "4. .env 配置"更新 `BGE_MODEL_PATH=embedding/bge-m3`，补充 `openai`/`qwen` 后端说明。
 - "5. 启动"增加 `start.bat` 自动完成的 5 个步骤说明。
 - 保留 API 接口/数据源/Agent 工具/数据目录/技术架构/项目结构/常见问题不变。
+
+文档生成(教程): 更新 ScholarFlow使用教程.docx 至最新项目状态
+
+- 修正 Python 版本：3.12+ → 3.10~3.12。
+- 准备工作从"三个软件"改为"四项准备"：新增 [4] BGE-M3 嵌入模型下载步骤（含完整 python 命令和国内镜像提示）。
+- 删除"同时打开两次浏览器"说明（该 bug 已修复）。
+- 启动说明加上"确保四项准备都已就绪"的前提。
+- 常见问题新增 BGE-M3 模型下载相关问答。
+- 目录结构新增 `embedding/bge-m3/` 条目。
 
 ### 2026-07-10
 
@@ -143,6 +190,52 @@
 
 - `start.bat` 的 `.env` 解析用 `findstr /v "^#"` 过滤注释行 + `findstr "."` 过滤空行 + `tokens=1*` 保留值中的 `=`，避免注释行被当作变量赋值导致异常。
 - `README.md` 新增"0. 创建数据库容器"小节，含 `docker run` 完整命令、验证/启停命令，与 `.env` 参数对应说明。
+
+### 2026-07-21
+
+代码生成(配置管理): Phase 1 基础设施 —— AppConfig 单例 + LLMFactory 统一创建
+
+- 三轮自审分析定位 11 个 bug，核心问题为 LLM 配置碎片化：`LLM_BACKEND` 仅 `agent.py` 一处生效，其余 5 个模块硬编码 Ollama。
+- 新建 `app/config.py`：`AppConfig` 类（纯 Python，零新依赖），从 `.env` 加载全部配置，`get_config()` 线程安全单例。覆盖数据库/LLM/Embedding/生成参数 15+ 字段。
+- 新建 `app/llm_factory.py`：`RawLLMClient` 抽象接口 + `OllamaRawClient`/`OpenAIRawClient` 实现（同步+异步），统一 Ollama `/api/chat` 和 OpenAI `/chat/completions`。`create_chat_model()` 返回 LangChain ChatModel，`create_raw_llm()` 返回底层 HTTP 客户端。
+- 设计文档：`docs/specs/configuration-management.md`（5 阶段实施计划）+ `docs/specs/bug-fix-plan.md`（11 个 bug 逐一方案）。
+
+修复(database): BUG-7 数据库默认地址 localhost → 127.0.0.1
+
+- `database.py`：`DATABASE_URL` 默认值从 `@localhost:5433` 改为 `@127.0.0.1:5433`，避免 WSL2 下 IPv6 解析延迟 5s。
+
+修复(frontend): BUG-5 翻译竞态条件 + BUG-9 类型安全
+
+- `SearchPage.tsx`：`handleCardClick` 新增 `translateRequestIdRef`（useRef 计数器），then/catch/finally 中校验 requestId，消除快速切换卡片的竞态条件。
+- `SearchPage.tsx`：新增 `translationError` 状态，API 失败时 UI 展示红色"翻译失败，请稍后重试"，区分"无需翻译"和"翻译失败"。
+- `SearchPage.tsx`：关闭模态框时同步重置 `translationError` 和 `translating`。
+- `SearchPage.tsx`：`importingIds`/`importedIds` 类型从 `Set<number>` 改为 `Set<string>`，key 改用 `hit.doi || hit.title`，消除 `as unknown as number` 类型绕过。
+
+修复(backend): BUG-4 翻译 max_tokens 2048 → 4096
+
+- `main.py`：`/translate` 端点 deepseek 路径 `max_tokens: 2048→4096`，ollama 路径 `num_predict: 2048→4096`，防止长摘要翻译截断。
+
+修复(startup): BUG-6 HF_HUB_OFFLINE 覆盖 + BUG-11 Python 路径硬编码
+
+- `.env`：`HF_HUB_OFFLINE=0→1`，启用离线模式避免 BGE-M3 加载时 10+ HF Hub 网络请求。
+- `start.bat`：`.env` 加载改为 `if not defined` 保护已设变量不被覆盖；Python 路径从硬编码 `C:\Users\HP\...` 改为自动检测 conda scholarflow 环境 → 兜底当前 `python`。
+
+修复(frontend+backend): 摘要翻译三项修复 —— 竞态条件 + 错误处理误导 + max_tokens 截断
+
+- 三轮自审分析定位三个 bug：(1) 快速切换卡片时旧请求覆盖新结果（竞态条件）；(2) API 失败时 catch 设 null 导致 UI 显示"已为中文，无需翻译"误导用户；(3) max_tokens=2048 可能截断长摘要。
+- `SearchPage.tsx`：`handleCardClick` 新增 `translateRequestIdRef`（useRef 计数器），每次点击递增 requestId，then/catch/finally 中校验 requestId 是否匹配当前卡片，消除竞态条件。
+- `SearchPage.tsx`：新增 `translationError` 状态，API 失败时设为 true，UI 展示"翻译失败，请稍后重试"（红色），区分"无需翻译"和"翻译失败"。
+- `SearchPage.tsx`：关闭模态框时同步重置 `translationError` 状态。
+- `main.py`：`/translate` 端点 max_tokens / num_predict 从 2048 提升至 4096，防止长摘要翻译截断。
+
+代码生成(frontend+backend): 三级缓存清除功能 —— 侧边栏「工具」下拉菜单 + 二次确认对话框
+
+- 设计方案：侧边栏底部新增「⚙ 工具」下拉菜单，三个清除等级，最高等级需输入「确认删除」二次确认。
+- `repositories.py`：`PaperRepository` 新增 `get_all_paper_ids()`（返回 ID+文件路径）和 `delete_all_papers()`（批量删除+级联 chunks）。
+- `main.py`：新增 `POST /admin/clear-sessions`（调用 `SessionManager.clear_all()`）和 `POST /admin/clear-all`（删除 DB 记录→PDF→文本→FAISS 索引→会话，返回统计信息）。
+- `api.ts`：新增 `clearSessions()` 和 `clearAll()` 两个 API 方法。
+- 新建 `ClearAllDialog.tsx`：模态框二次确认组件，输入「确认删除」匹配后才允许点击确认按钮，支持 loading 状态。
+- `Sidebar.tsx`：新增「工具」按钮（Wrench 图标），点击弹出三选项下拉菜单；第一级「清除前端缓存」清除两个 localStorage key；第二级「清除前端+历史」额外调 `/admin/clear-sessions`；第三级「清除所有数据」弹出 ClearAllDialog 确认后调 `/admin/clear-all`；成功提示 2.5 秒自动消失。
 
 ### 2026-07-09
 
@@ -344,3 +437,100 @@
 - 新增 `app/harvest/harvester.py`，串起"检索 → 过滤 → 保存"完整流程。
 - 新增 `scripts/crawl_food_literature.py`，采集脚本入口，跑真实检索并生成报告。
 - 测试结果：10 篇候选 → 领域过滤器保留 8 篇 → 8 篇入库，链路 "检索 → 过滤 → 入库" 跑通。
+
+### 2026-07-14
+
+代码生成(harvester/clients): Europe PMC / arXiv / Semantic Scholar 客户端新增 author 参数，支持按作者名过滤检索
+
+- `europe_pmc_client.py`: `search()` 新增 `author` 参数，查询时拼入 `AUTH:"name"` 语法。
+- `arxiv_client.py`: `search()` + `_request_search_page()` 新增 `author` 参数，查询时拼入 `au:"name"` 前缀。
+- `semantic_scholar_client.py`: `search()` 新增 `author` 参数，查询时嵌入作者名精确匹配。
+- `harvester.py`: `_search_one_source()` / `search_only()` / `search_only_stream()` 全链路新增 `author` 参数透传。
+- `pipeline_service.py`: `search_papers_service()` / `search_papers_stream_service()` 新增 `author` 参数透传。
+
+代码生成(agent): 新增 web_search 工具模块（DuckDuckGo），Agent 可并行调用文献 API + 网页搜索查找作者论文
+
+- 新建 `app/agent/web_search.py`，封装 DuckDuckGo 免费网页搜索（`duckduckgo_search>=7.0.0`）。
+- `tools.py` 新增 `@tool web_search(query, max_results)` 工具，返回标题/摘要/URL 列表。
+- `ALL_TOOLS` 加入 `web_search`。
+- `search_papers` 工具新增 `author` 参数，调用时透传至 pipeline_service。
+
+代码生成(agent): 更新 Agent 系统提示词，编排 author search + web_search 双通道作者论文查询
+
+- `agent.py` 系统提示词新增规则：用户查询作者论文时，先调用 `search_papers(author=...)` 从学术数据库检索，同时/随后调用 `web_search` 补充网页来源。
+
+代码生成(api): SearchRequest 模型新增 author 字段，/search 和 /search/stream 端点透传作者参数
+
+- `main.py`: `SearchRequest` 新增 `author: Optional[str]` 字段。
+- `POST /search` 和 `POST /search/stream` 端点传递 `author` 到 service 层。
+- 四个 `requirements/*.txt` 文件均追加 `duckduckgo_search>=7.0.0` 依赖。
+
+代码生成(frontend): SearchPage 新增作者输入框，支持按作者名筛选检索结果
+
+- `api.ts`: `search()` 方法新增 `author?: string` 参数。
+- `SearchPage.tsx`: 新增 `author` 状态、localStorage 持久化、作者输入框 UI（含清除按钮），搜索时透传 `author` 参数。
+
+代码生成(agent/name_utils): 中文作者名自动扩展为 8 种英文拼音变体 OR 查询
+
+- 新建 `app/agent/name_utils.py`，基于 `pypinyin` 将中文名转为拼音，生成 8 种常见英文署名格式变体（名姓/姓名/连写/全小写等）。
+- `europe_pmc_client.py` / `arxiv_client.py` / `semantic_scholar_client.py` 三个客户端在 `author` 含中文时自动调用 `build_author_or_query()` / `expand_chinese_name()` 构建 OR 查询。
+- 四个 `requirements/*.txt` 文件均追加 `pypinyin>=0.55.0` 依赖。
+
+代码生成(harvester+api+frontend): 支持纯作者检索 — 无需主题关键词，直接输入作者名即可查论文
+
+- `harvester.py` `search_only` / `search_only_stream`: query 校验从必填改为"query 和 author 至少提供一个"。
+- 三个客户端 `europe_pmc_client.py` / `arxiv_client.py` / `semantic_scholar_client.py`: 同上校验放宽；当 query 为空时，author 查询片段独立构成检索表达式（不含多余前缀）。
+- `main.py` `/search` 和 `/search/stream`: 允许 query 为空当 author 提供时，错误提示更新。
+- `SearchPage.tsx`: 关键词输入框改为可选；搜索按钮在仅填写作者名时也可点击。
+
+性能优化(embedder+main): 启动速度从 9-14s 降至 <1s — warmup 后台化 + 跳过首次 encode + 强制 CUDA
+
+- `embedder.py`: `_infer_dimension()` 新增 `_KNOWN_DIMENSIONS` 硬编码表（bge-m3→1024），已知模型跳过首次 encode 省 2-3s。
+- `main.py` lifespan: BGE-M3 warmup 从同步阻塞改为 `threading.Thread(daemon=True)` 后台加载，服务器立即就绪。
+- `main.py` lifespan: 强制 `device='cuda'`（CUDA 可用时），模型加载从 11s（CPU）降至 7s（GPU）。
+- 效果：用户感知启动时间 0.6s，模型在后台 6.9s 热好。
+
+代码生成(agent): Agent 回复格式规范化 + 搜索深度 + import_paper 入库工具
+
+- `tools.py`: `search_papers` 输出新增 `authors` 字段；新增 `import_paper` 工具（title/authors/doi/year/journal→入库）。
+- `agent.py` 系统提示词全面升级：论文结果必须用 Markdown 表格展示 metadata（不能只回作者名）；缺失字段留空不编造；搜索后主动提供入库选项。
+- `agent.py` `run_agent()` 新增 `search_depth` 参数：quick=仅标题年份，deep（默认）=完整 metadata + 入库建议。以前置指令注入到用户消息中。
+- `main.py`: `AgentChatRequest` 新增 `search_depth` 字段（quick/deep），透传到 `run_agent()`。
+
+### 2026-07-21
+
+代码生成(harvester+api+frontend): 期刊筛选第二层 — Nature/Science/Cell 假源退役，替换为期刊下拉
+
+- `europe_pmc_client.py`: `search()` 新增 `journal` 参数，支持 `JOURNAL:"Name"` 语法。
+- `harvester.py`: `_search_one_source` / `search_only` / `search_only_stream` 全链路新增 `journal` 参数透传。
+- `pipeline_service.py`: `search_papers_service` / `search_papers_stream_service` 新增 `journal` 参数。
+- `main.py`: `SearchRequest` 新增 `journal` 字段，`/search` 和 `/search/stream` 端点透传。
+- `SearchPage.tsx`: SOURCES 从 6→3（移除 nature/science/cell 假源）；新增 17 个预设期刊下拉 + 自定义输入；`journal` 状态持久化到 localStorage。
+- `api.ts`: `search` / `searchStream` 参数新增 `journal`。
+
+### 2026-07-21 (Phase 2)
+
+代码生成(harvest/clients): 新增 PubMed 和 OpenAlex 文献客户端
+
+- 新建 `app/harvest/literature/pubmed_client.py`：NCBI E-utilities API（esearch + esummary），返回 MeSH pubtype 列表，免费 3 req/s（可注册 key 提至 10/s）。
+- 新建 `app/harvest/literature/openalex_client.py`：OpenAlex REST API（250M+ 作品），返回引用计数、摘要重建、开放获取信息。
+- `harvester.py`：`_get_search_fn` 新增 `pubmed` / `openalex` 源映射；`LiteratureHarvester.__init__` 实例化两个新客户端。
+
+代码生成(domain): 质量评分增强 — 多因子加权
+
+- `filters.py` 新增 `compute_quality_score(domain_score, citation_count, year, source)`：四因子加权（语义 0.40 / 引用 0.25 / 时效 0.20 / 来源信誉 0.15）。
+- arXiv 特殊处理：引用权重翻倍至 0.50，无时效衰减。
+
+代码生成(frontend): SOURCES 数据源新增 PubMed 和 OpenAlex
+### 2026-07-22 (Phase 4)
+
+代码生成(brand): ScholarFlow → ScholarFlow-Bio 品牌升级 + DNA Logo
+
+- 新建 `frontend/src/components/Logo.tsx`：SVG DNA 双螺旋 + "ScholarFlow" + "-Bio" 下标（indigo/emerald 配色）。
+- `Sidebar.tsx`：Logo 替换旧的方框+书图标；副标题改为"生物医学文献智能体"。
+- `index.html`：`<title>` 改为 "ScholarFlow-Bio — 生物医学文献智能体"。
+- `main.py`：FastAPI title/description 升级为 ScholarFlow-Bio，version 1.3.0。
+- `package.json`：name 改为 `scholarflow-bio-frontend`。
+- `README.md`：标题/描述更新为 ScholarFlow-Bio。
+- `SearchPage.tsx`：SOURCES 从 3→5（+PubMed、+OpenAlex）。
+

@@ -88,6 +88,12 @@ async def search_papers_service(
     domain: str | None = None,
     sort_by: str = "relevance",
     sort_order: str = "desc",
+    author: str | None = None,
+    journal: str | None = None,
+    preprint_sources: list[str] | None = None,
+    institution: str | None = None,
+    language: str | None = None,
+    max_total: int | None = None,
 ) -> dict[str, Any]:
     """
     仅检索 + 评分 + 在库检查，不写入数据库。
@@ -101,6 +107,8 @@ async def search_papers_service(
         domain: LLM 提取的领域标签。
         sort_by: 排序方式（relevance / year / citations）。
         sort_order: 排序顺序（asc / desc）。
+        author: 按作者名过滤。
+        journal: 按期刊名过滤（仅 europe_pmc 生效）。
     """
     if sources is None:
         sources = ["europe_pmc"]
@@ -116,6 +124,12 @@ async def search_papers_service(
         domain=domain,
         sort_by=sort_by,
         sort_order=sort_order,
+        author=author,
+        journal=journal,
+        preprint_sources=preprint_sources,
+        institution=institution,
+        language=language,
+        max_total=max_total,
     )
 
     return search_report_to_dict(report)
@@ -134,6 +148,12 @@ async def search_papers_stream_service(
     domain: str | None = None,
     sort_by: str = "relevance",
     sort_order: str = "desc",
+    author: str | None = None,
+    journal: str | None = None,
+    preprint_sources: list[str] | None = None,
+    institution: str | None = None,
+    language: str | None = None,
+    max_total: int | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     流式检索：通过 SSE 逐源推送进度，最后推送完整结果。
@@ -152,6 +172,12 @@ async def search_papers_stream_service(
         domain=domain,
         sort_by=sort_by,
         sort_order=sort_order,
+        author=author,
+        journal=journal,
+        preprint_sources=preprint_sources,
+        institution=institution,
+        language=language,
+        max_total=max_total,
     ):
         yield event
 

@@ -85,6 +85,7 @@ class ArxivClient:
         max_results: int = 20,
         page_size: int = 25,
         sort_by: str = "relevance",
+        author: str | None = None,
     ) -> list[PaperMetadata]:
         """
         搜索 arXiv 文献。
@@ -94,11 +95,12 @@ class ArxivClient:
             max_results: 最多返回多少条文献。
             page_size: 每页请求数量。
             sort_by: 排序方式，relevance / lastUpdatedDate / submittedDate。
+            author: 按作者名过滤。arXiv 支持 au:"Name" 语法。
 
         返回：
             PaperMetadata 列表。
         """
-        if not query or not query.strip():
+        if (not query or not query.strip()) and (not author or not author.strip()):
             raise ValueError("query 不能为空。")
 
         if max_results <= 0:
@@ -112,6 +114,7 @@ class ArxivClient:
             start=0,
             page_size=min(page_size, max_results),
             sort_by=sort_by,
+            author=author,
         )
 
         entries = self._parse_feed(response_xml)
@@ -133,12 +136,23 @@ class ArxivClient:
         start: int,
         page_size: int,
         sort_by: str,
+        author: str | None = None,
     ) -> str:
         """
         请求 arXiv 单页搜索结果，返回 XML 文本。
         """
+        if author and author.strip():
+            from app.agent.name_utils import build_author_or_query
+            author_part = build_author_or_query(author, "au")
+            if query.strip():
+                search_query = f'{author_part} AND all:{query}'
+            else:
+                search_query = author_part
+        else:
+            search_query = f'all:{query}'
+
         params = {
-            "search_query": f"all:{query}",
+            "search_query": search_query,
             "start": str(start),
             "max_results": str(page_size),
             "sortBy": sort_by,

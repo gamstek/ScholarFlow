@@ -176,13 +176,26 @@ class TextEmbedder:
 
         self.dimension = self._infer_dimension()
 
+    # 已知模型的向量维度（避免首次 encode 耗时 2-3s）
+    _KNOWN_DIMENSIONS = {
+        "bge-m3": 1024,
+        "BAAI/bge-m3": 1024,
+    }
+
     def _infer_dimension(self) -> int:
         """
         推断 embedding 向量维度。
 
-        方法：
-            用一个短文本做一次 encode，然后读取向量长度。
+        对于已知模型直接返回硬编码维度（省去首次 encode 的 2-3s），
+        未知模型通过一次 encode 推断。
         """
+        # 检查是否为已知模型
+        model_name_lower = self.model_name.lower()
+        for key, dim in self._KNOWN_DIMENSIONS.items():
+            if key.lower() in model_name_lower:
+                return dim
+
+        # 未知模型：首次 encode 推断
         vector = self.model.encode(
             ["dimension test"],
             normalize_embeddings=self.normalize_embeddings,

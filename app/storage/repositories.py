@@ -340,6 +340,31 @@ class PaperRepository:
             await session.commit()
             return True
 
+    async def get_all_paper_ids(self) -> list[dict[str, Any]]:
+        """获取所有文献 ID 及文件路径，用于批量清理。"""
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(Paper.id, Paper.local_pdf_path, Paper.local_text_path)
+            )
+            rows = result.all()
+            return [
+                {
+                    "id": row[0],
+                    "local_pdf_path": row[1],
+                    "local_text_path": row[2],
+                }
+                for row in rows
+            ]
+
+    async def delete_all_papers(self) -> int:
+        """删除所有文献记录（级联删除 chunks），返回删除数量。"""
+        async with async_session_factory() as session:
+            result = await session.execute(select(Paper.id))
+            count = len(result.all())
+            await session.execute(Paper.__table__.delete())
+            await session.commit()
+            return count
+
 
 # ============================================================
 # 3. Chunk Repository

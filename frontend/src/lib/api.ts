@@ -62,6 +62,7 @@ export interface SearchHit {
   title: string;
   abstract: string | null;
   authors: string[] | null;
+  author_affiliations: Array<{ name: string; institution: string | null }> | null;
   year: number | null;
   journal: string | null;
   doi: string | null;
@@ -76,6 +77,7 @@ export interface SearchHit {
   domain_score: number;
   in_library: boolean;
   paper_id: number | null;
+  tags: string[];
 }
 
 export interface SearchResult {
@@ -219,6 +221,12 @@ export const api = {
     max_results: number;
     sort_by?: string;
     sort_order?: string;
+    author?: string;
+    journal?: string;
+    preprint_sources?: string[];
+    institution?: string;
+    language?: string;
+    max_total?: number;
   }) => post<SearchResult>('/search', params),
 
   // 流式检索：通过 SSE 推送进度
@@ -230,6 +238,12 @@ export const api = {
       max_results: number;
       sort_by?: string;
       sort_order?: string;
+      author?: string;
+      journal?: string;
+      preprint_sources?: string[];
+      institution?: string;
+      language?: string;
+      max_total?: number;
     },
     onProgress: (current: number, total: number, source: string, sourceCount: number) => void,
   ): Promise<SearchResult> => {
@@ -324,6 +338,14 @@ export const api = {
 
   // 翻译
   translate: (text: string) => post<{ translated: string; original: string; note?: string }>('/translate', { text }),
+
+  // 机构排名
+  getInstitutions: (limit = 20) =>
+    get<{ institutions: Array<{ name: string; count: number }>; total_unique: number }>(`/institutions?limit=${limit}`),
+
+  // 管理工具 — 清除缓存
+  clearSessions: () => post<{ cleared: boolean; message: string }>('/admin/clear-sessions', {}),
+  clearAll: () => post<{ cleared: boolean; papers: number; message: string; errors?: string[] | null }>('/admin/clear-all', {}),
 
   // 手动上传 PDF
   uploadPdf: async (paperId: number, file: File): Promise<{ paper_id: number; message: string }> => {

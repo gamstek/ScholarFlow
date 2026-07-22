@@ -44,7 +44,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 REQUIREMENTS_DIR = PROJECT_ROOT / "requirements"
 REQUIREMENTS_PATH = REQUIREMENTS_DIR / "requirements.txt"
 
-# 期望的 Python 版本范围（ScholarFlow 依赖 sentence-transformers>=5.6, langchain>=0.3）
+# 期望的 Python 版本范围（ScholarFlow 依赖 sentence-transformers>=5.6, langchain>=1.0）
 PYTHON_MIN = (3, 10)
 PYTHON_MAX = (3, 12)
 

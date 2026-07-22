@@ -23,6 +23,7 @@ ScholarFlow 个人文献工作站 — FastAPI 服务入口。
 from __future__ import annotations
 
 import os
+import threading
 from dotenv import load_dotenv
 
 # 加载 .env 环境变量（必须在其他 import 之前，确保 DATABASE_URL 等已设置）
@@ -54,34 +55,69 @@ from sqlalchemy import text as sa_text
 
 
 # ============================================================
+# 0. 配置校验
+# ============================================================
+
+def _validate_config() -> None:
+    """
+    FastAPI 启动时校验配置一致性，打印警告或确认信息。
+
+    不阻塞启动——仅做诊断输出。
+    """
+    from app.config import get_config
+
+    cfg = get_config()
+
+    print(f"[Config] {cfg.summary()}")
+
+    warnings = cfg.validate()
+    if warnings:
+        for w in warnings:
+            print(f"[Config] ⚠ {w}")
+    else:
+        print(f"[Config] ✓ 配置校验通过")
+
+
+# ============================================================
 # 1. FastAPI 应用
 # ============================================================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> None:
     """
-    FastAPI lifespan: 启动时初始化数据库 + 预热 embedding 模型，关闭时释放连接。
+    FastAPI lifespan: 初始化数据库，后台预热 embedding 模型。
+
+    优化：BGE-M3 加载耗时 7-11s，移到后台线程不阻塞启动，
+    服务器在 ~1s 内就绪，模型在后台 5-7s 热好。
     """
     await init_db()
 
-    # 预热 BGE-M3 embedding 模型，避免首次搜索等待 10s 模型加载
-    try:
-        from app.domain.filters import _get_embedder
-        _get_embedder(model_name=DEFAULT_EMBEDDING_MODEL, device=None)
-        print("[Lifespan] BGE-M3 embedding model warmed up")
-    except Exception as exc:
-        print(f"[Lifespan] embedding warmup skipped: {exc}")
+    # 配置一致性校验
+    _validate_config()
+
+    # 后台线程预热 BGE-M3 embedding 模型（不阻塞启动）
+    def _warmup():
+        try:
+            from app.domain.filters import _get_embedder
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            _get_embedder(model_name=DEFAULT_EMBEDDING_MODEL, device=device)
+            print(f"[Lifespan] BGE-M3 embedding model warmed up ({device})")
+        except Exception as exc:
+            print(f"[Lifespan] embedding warmup failed: {exc}")
+
+    threading.Thread(target=_warmup, daemon=True).start()
 
     yield
 
 
 app = FastAPI(
-    title="ScholarFlow",
+    title="ScholarFlow-Bio",
     description=(
-        "通用文献采集与检索智能体。"
+        "生物医学文献智能体。"
         "支持本地文献检索、chunk 检索和基于 Ollama 的问答。"
     ),
-    version="0.2.0",
+    version="1.3.0",
     lifespan=lifespan,
 )
 
@@ -410,14 +446,9 @@ def get_cached_rag_engine(
         _RAG_ENGINE_CACHE[key] = LocalRagEngine(
             embedding_model_name=request.embedding_model,
             embedding_device=request.embedding_device,
-            ollama_model=request.ollama_model,
-            ollama_base_url=request.ollama_base_url,
             temperature=request.temperature,
             num_ctx=request.num_ctx,
             num_predict=request.num_predict,
-            timeout=request.timeout,
-            think=think,
-            keep_alive="30m",
         )
 
     return _RAG_ENGINE_CACHE[key]
@@ -462,23 +493,19 @@ async def health() -> dict[str, Any]:
     健康检查接口（含模型信息）。
     """
     import httpx
+    from app.config import get_config
 
-    llm_backend = os.getenv("LLM_BACKEND", "ollama")
+    cfg = get_config()
     embedding_model = DEFAULT_EMBEDDING_MODEL
 
-    # 根据 LLM_BACKEND 确定模型信息
-    if llm_backend == "deepseek":
-        llm_provider = "deepseek"
-        llm_model = os.getenv("CLOUD_MODEL", "deepseek-chat")
-        llm_base_url = os.getenv("CLOUD_API_BASE", "https://api.deepseek.com/v1")
-    else:
-        llm_provider = "ollama"
-        llm_model = os.getenv("OLLAMA_MODEL", "qwen3:8b")
-        llm_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    # 根据配置确定模型信息
+    llm_provider = cfg.llm_backend
+    llm_model = cfg.active_model_name
+    llm_base_url = cfg.active_base_url
 
     # 检测 LLM 是否可用
     llm_status = "unknown"
-    if llm_backend == "ollama":
+    if cfg.llm_backend == "ollama":
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
                 resp = await client.get(f"{llm_base_url}/api/tags")
@@ -487,8 +514,7 @@ async def health() -> dict[str, Any]:
             llm_status = "offline"
     else:
         # 云端 API：检查 key 是否配置
-        api_key = os.getenv("CLOUD_API_KEY", "")
-        llm_status = "ok" if api_key else "no_api_key"
+        llm_status = "ok" if cfg.cloud_api_key else "no_api_key"
 
     return {
         "status": "ok",
@@ -519,13 +545,9 @@ async def translate(request: TranslateRequest) -> dict[str, Any]:
 
     根据 .env 中 LLM_BACKEND 选择 ollama 或云端 API。
     """
-    import httpx
-
     text = request.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="text 不能为空。")
-
-    llm_backend = os.getenv("LLM_BACKEND", "ollama")
 
     # 仅翻译英文摘要（检测是否含中文字符）
     has_cjk = any('\u4e00' <= ch <= '\u9fff' for ch in text)
@@ -539,56 +561,24 @@ async def translate(request: TranslateRequest) -> dict[str, Any]:
     )
 
     try:
-        if llm_backend == "deepseek":
-            api_key = os.getenv("CLOUD_API_KEY", "")
-            api_base = os.getenv("CLOUD_API_BASE", "https://api.deepseek.com/v1")
-            model = os.getenv("CLOUD_MODEL", "deepseek-chat")
+        from app.llm_factory import create_raw_llm, LLMClientError
+        from app.config import get_config
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{api_base}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": "你是一个专业的学术翻译助手。"},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.3,
-                        "max_tokens": 2048,
-                    },
-                )
-                if resp.status_code != 200:
-                    raise HTTPException(status_code=502, detail=f"翻译 API 错误: {resp.text[:200]}")
-                data = resp.json()
-                translated = data["choices"][0]["message"]["content"].strip()
-        else:
-            # Ollama 本地翻译
-            ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-            ollama_model = os.getenv("OLLAMA_MODEL", "qwen3:8b")
-
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    f"{ollama_url}/api/chat",
-                    json={
-                        "model": ollama_model,
-                        "messages": [
-                            {"role": "system", "content": "你是一个专业的学术翻译助手。"},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "stream": False,
-                        "options": {"temperature": 0.3, "num_predict": 2048},
-                    },
-                )
-                if resp.status_code != 200:
-                    raise HTTPException(status_code=502, detail=f"Ollama 翻译错误: {resp.text[:200]}")
-                data = resp.json()
-                translated = data["message"]["content"].strip()
+        cfg = get_config()
+        client = create_raw_llm()
+        translated = await client.achat(
+            system_prompt="你是一个专业的学术翻译助手。",
+            user_prompt=prompt,
+            temperature=0.3,
+            max_tokens=cfg.translate_max_tokens,
+        )
 
         return {"translated": translated, "original": text}
+    except LLMClientError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"翻译 API 错误: {exc.response_body or str(exc)}"
+        ) from exc
     except HTTPException:
         raise
     except Exception as exc:
@@ -630,6 +620,46 @@ async def stats() -> dict[str, Any]:
         "chunk_status": chunk_status,
         "rag_engine_cache_size": len(_RAG_ENGINE_CACHE),
         "retriever_cache_size": len(_RETRIEVER_CACHE),
+    }
+
+
+@app.get("/institutions")
+async def list_institutions(
+    limit: int = Query(20, ge=1, le=50),
+) -> dict[str, Any]:
+    """
+    返回本地文献库中机构排名（按出现频率降序）。
+
+    从 papers.authors_json 提取所有 institution 字段，聚合计数。
+    """
+    from app.harvest.literature.author_utils import parse_authors_json
+    from app.storage.models import Paper as PaperModel
+    from sqlalchemy import select as sa_select
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            sa_select(PaperModel.authors_json).where(PaperModel.authors_json.isnot(None))
+        )
+        rows = result.fetchall()
+
+    counter: dict[str, int] = {}
+    for row in rows:
+        authors = parse_authors_json(row[0])
+        for a in authors:
+            inst = a.get("institution")
+            if inst:
+                # 处理多机构情况（分号分隔）
+                for part in inst.split(";"):
+                    part = part.strip()
+                    if part:
+                        counter[part] = counter.get(part, 0) + 1
+
+    sorted_insts = sorted(counter.items(), key=lambda x: x[1], reverse=True)
+    top = [{"name": k, "count": v} for k, v in sorted_insts[:limit]]
+
+    return {
+        "institutions": top,
+        "total_unique": len(counter),
     }
 
 
@@ -902,6 +932,32 @@ class SearchRequest(BaseModel):
         "desc",
         description="排序顺序：asc（升序）/ desc（降序）。",
     )
+    author: Optional[str] = Field(
+        None,
+        description="按作者名过滤。例如 'Geoffrey Hinton'。",
+    )
+    journal: Optional[str] = Field(
+        None,
+        description="按期刊名过滤。例如 'Nature'。仅 europe_pmc 源生效。",
+    )
+    preprint_sources: Optional[list[str]] = Field(
+        None,
+        description="OpenAlex 预印本源 ID 列表。如 ['S4306402567','S3005729997']。仅 openalex 源生效。",
+    )
+    institution: Optional[str] = Field(
+        None,
+        description="按机构名筛选。例如 'MIT' 或 'CSAIL'。仅 OpenAlex / PubMed 生效。",
+    )
+    language: Optional[str] = Field(
+        None,
+        description="文献语言：zh=中文 / en=外文 / null=不限。仅 europe_pmc/pubmed/openalex 生效。",
+    )
+    max_total: Optional[int] = Field(
+        None,
+        ge=1,
+        le=500,
+        description="总计最多返回篇数（跨源汇总后截断）。设置后忽略 max_results。",
+    )
 
 
 class ReviewRequest(BaseModel):
@@ -928,35 +984,17 @@ class ReviewRequest(BaseModel):
         le=3000,
         description="每条证据放入 prompt 的最大字符数。",
     )
-    ollama_model: str = Field(
-        "qwen3:8b",
-        description="Ollama 生成模型。",
-    )
-    ollama_base_url: str = Field(
-        "http://localhost:11434",
-        description="Ollama 服务地址。",
-    )
     temperature: float = Field(
         0.3,
         ge=0.0,
         le=2.0,
         description="生成温度，综述建议 0.3~0.5。",
     )
-    num_ctx: int = Field(
-        8192,
-        ge=512,
-        description="上下文窗口大小。",
-    )
     num_predict: int = Field(
         2048,
         ge=64,
         le=8192,
         description="最大输出 token 数。",
-    )
-    timeout: int = Field(
-        900,
-        ge=30,
-        description="HTTP 请求超时秒数。",
     )
 
 
@@ -989,10 +1027,10 @@ async def search(request: SearchRequest) -> dict[str, Any]:
             # 用提取的关键词拼接为检索 query
             query = " ".join(keywords) if keywords else request.natural_query.strip()
 
-        if not query:
+        if not query and not (request.author and request.author.strip()) and not (request.institution and request.institution.strip()):
             raise HTTPException(
                 status_code=400,
-                detail="必须提供 query 或 natural_query。",
+                detail="必须提供 query、natural_query、author 或 institution。",
             )
 
         result = await search_papers_service(
@@ -1004,6 +1042,12 @@ async def search(request: SearchRequest) -> dict[str, Any]:
             domain=domain,
             sort_by=request.sort_by,
             sort_order=request.sort_order,
+            author=request.author,
+            journal=request.journal,
+            preprint_sources=request.preprint_sources,
+            institution=request.institution,
+            language=request.language,
+            max_total=request.max_total,
         )
         return result
     except HTTPException:
@@ -1038,10 +1082,10 @@ async def search_stream(request: SearchRequest):
             domain = extraction.domain
             query = " ".join(keywords) if keywords else request.natural_query.strip()
 
-        if not query:
+        if not query and not (request.author and request.author.strip()) and not (request.institution and request.institution.strip()):
             raise HTTPException(
                 status_code=400,
-                detail="必须提供 query 或 natural_query。",
+                detail="必须提供 query、natural_query、author 或 institution。",
             )
 
         from app.services.pipeline_service import search_papers_stream_service
@@ -1056,6 +1100,12 @@ async def search_stream(request: SearchRequest):
                 domain=domain,
                 sort_by=request.sort_by,
                 sort_order=request.sort_order,
+                author=request.author,
+                journal=request.journal,
+                preprint_sources=request.preprint_sources,
+                institution=request.institution,
+                language=request.language,
+                max_total=request.max_total,
             ):
                 yield event
 
@@ -1115,12 +1165,8 @@ async def review(request: ReviewRequest) -> dict[str, Any]:
             top_k=request.top_k,
             min_score=request.min_score,
             max_chars_per_evidence=request.max_chars_per_evidence,
-            ollama_model=request.ollama_model,
-            ollama_base_url=request.ollama_base_url,
             temperature=request.temperature,
-            num_ctx=request.num_ctx,
             num_predict=request.num_predict,
-            timeout=request.timeout,
         )
         return {
             "topic": result.topic,
@@ -1558,6 +1604,10 @@ class AgentChatRequest(BaseModel):
     base_url: str = Field("http://localhost:11434", description="Ollama 服务地址。")
     temperature: float = Field(0.3, ge=0.0, le=2.0, description="生成温度。")
     num_ctx: int = Field(4096, ge=512, description="上下文窗口大小。")
+    search_depth: str = Field(
+        "deep",
+        description="搜索深度：quick=快速（仅标题年份），deep=深度（完整 metadata + 入库建议）。",
+    )
 
 
 @app.post("/agent/chat")
@@ -1583,6 +1633,7 @@ async def agent_chat(request: AgentChatRequest) -> dict[str, Any]:
             base_url=request.base_url,
             temperature=request.temperature,
             num_ctx=request.num_ctx,
+            search_depth=request.search_depth,
         )
 
         return {
@@ -1628,6 +1679,75 @@ async def agent_delete_session(session_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="会话不存在")
 
     return {"deleted": True, "session_id": session_id}
+
+
+# ============================================================
+# 8.5 管理工具 — 清除缓存
+# ============================================================
+
+@app.post("/admin/clear-sessions")
+async def admin_clear_sessions() -> dict[str, Any]:
+    """清空所有 Agent 会话历史。"""
+    from app.agent.agent import SessionManager
+
+    SessionManager.clear_all()
+    return {"cleared": True, "message": "已清除所有 Agent 会话历史"}
+
+
+@app.post("/admin/clear-all")
+async def admin_clear_all() -> dict[str, Any]:
+    """
+    清除所有本地数据：文献记录、PDF、提取文本、FAISS 索引、Agent 会话。
+    此操作不可恢复。
+    """
+    import shutil
+    from pathlib import Path
+
+    from app.agent.agent import SessionManager
+    from app.storage.repositories import PaperRepository
+
+    data_dir = Path(__file__).resolve().parent.parent / "data"
+    errors: list[str] = []
+
+    # 1. 获取所有文献文件路径
+    paper_repo = PaperRepository()
+    paper_files = await paper_repo.get_all_paper_ids()
+    papers_count = len(paper_files)
+
+    # 2. 删除数据库中的论文记录
+    await paper_repo.delete_all_papers()
+
+    # 3. 删除 PDF 和提取文本文件
+    for pf in paper_files:
+        for path_key in ("local_pdf_path", "local_text_path"):
+            file_path = pf.get(path_key)
+            if file_path:
+                try:
+                    Path(file_path).unlink(missing_ok=True)
+                except Exception as exc:
+                    errors.append(f"删除文件失败 {file_path}: {exc}")
+
+    # 4. 删除 FAISS 索引
+    index_dir = data_dir / "index"
+    if index_dir.exists():
+        try:
+            shutil.rmtree(index_dir)
+            index_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            errors.append(f"删除索引目录失败: {exc}")
+
+    # 5. 删除会话历史
+    try:
+        SessionManager.clear_all()
+    except Exception as exc:
+        errors.append(f"清除会话失败: {exc}")
+
+    return {
+        "cleared": True,
+        "papers": papers_count,
+        "message": f"已清除所有数据（{papers_count} 篇文献）",
+        "errors": errors if errors else None,
+    }
 
 
 # ============================================================

@@ -387,3 +387,74 @@ def classify_paper(
         "reason": result.reason,
         "matched_terms": {},
     }
+
+
+# ============================================================
+# 质量评分 — 多因子加权（Phase 2）
+# ============================================================
+
+import math
+from datetime import datetime
+
+
+def compute_quality_score(
+    domain_score: float,
+    citation_count: int | None = None,
+    year: int | None = None,
+    source: str = "",
+) -> float:
+    """
+    综合质量评分（0~1）。
+
+    加权因子：
+        - 语义相关性 (0.40)：BGE-M3 余弦相似度
+        - 引用影响力 (0.25)：log 归一化引用数
+        - 时效性     (0.20)：近年论文加分
+        - 发表类型   (0.15)：来源信誉加成（ArXiv 略低）
+
+    arXiv 特殊处理：引用权重翻倍（0.50），无时效衰减。
+
+    参数：
+        domain_score: BGE-M3 语义相似度 (0~1)。
+        citation_count: 引用次数。
+        year: 发表年份。
+        source: 数据来源（用于 arXiv 判断）。
+
+    返回：
+        综合质量评分 (0~1)。
+    """
+    is_arxiv = "arxiv" in source.lower()
+
+    # 引用分数：log 归一化
+    if citation_count and citation_count > 0:
+        citation_score = min(math.log10(citation_count + 1) / 4.0, 1.0)
+    else:
+        citation_score = 0.0
+
+    # 时效分数
+    current_year = datetime.now().year
+    if year and year > 1990:
+        age = current_year - year
+        if is_arxiv:
+            recency_score = 1.0  # arXiv 不衰减
+        else:
+            recency_score = max(0.0, 1.0 - age / 15.0)
+    else:
+        recency_score = 0.5
+
+    if is_arxiv:
+        # arXiv: 引用权重翻倍，无时效衰减
+        return round(
+            0.40 * domain_score +
+            0.50 * citation_score +
+            0.10 * recency_score,
+            4,
+        )
+    else:
+        return round(
+            0.40 * domain_score +
+            0.25 * citation_score +
+            0.20 * recency_score +
+            0.15 * 0.8,  # 来源基础信誉
+            4,
+        )

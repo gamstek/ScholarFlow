@@ -222,12 +222,9 @@ async def main() -> None:
     engine = LocalRagEngine(
         embedding_model_name=args.embedding_model,
         embedding_device=args.embedding_device,
-        ollama_model=args.ollama_model,
-        ollama_base_url=args.ollama_base_url,
         temperature=args.temperature,
         num_ctx=args.num_ctx,
         num_predict=args.num_predict,
-        timeout=args.timeout,
     )
 
     result = await engine.ask(

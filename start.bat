@@ -52,15 +52,37 @@ echo.
 start "" cmd /c "timeout /t 3 >nul && start http://localhost:8000"
 
 :: Start backend
-:: 离线模式：跳过 HuggingFace Hub 联网验证，直接从本地缓存加载模型
-set HF_HUB_OFFLINE=1
-:: Load .env if exists (for DATABASE_URL etc.)
+:: Load .env if exists (仅设置尚未定义的变量，不覆盖已有值)
 if exist .env (
     for /f "usebackq tokens=1* delims==" %%a in (`findstr /v "^#" .env ^| findstr "."`) do (
-        set "%%a=%%b"
+        if not defined %%a set "%%a=%%b"
     )
 )
-set PYTHON=C:\Users\HP\.conda\envs\scholarflow\python.exe
+
+:: 自动检测 scholarflow conda 环境的 Python 路径
+:: conda info --envs 输出格式: "scholarflow              C:\Users\...\scholarflow"
+:: tokens=1* 按空格分割：%%i = 环境名, %%j = 路径（支持含空格的路径）
+set PYTHON=
+for /f "tokens=*" %%i in ('where conda 2^>nul') do set CONDA_CMD=%%i
+if defined CONDA_CMD (
+    for /f "tokens=1*" %%i in ('conda info --envs 2^>nul ^| findstr scholarflow') do (
+        if exist "%%j\python.exe" set "PYTHON=%%j\python.exe"
+    )
+)
+:: 兜底：如果 conda 环境已激活，直接用当前 python
+if not defined PYTHON (
+    where python >nul 2>nul
+    if not errorlevel 1 (
+        set PYTHON=python
+    )
+)
+if not defined PYTHON (
+    echo [ERROR] 找不到 scholarflow 环境的 Python。请先运行: conda activate scholarflow
+    pause
+    exit /b 1
+)
+echo [OK] Python: %PYTHON%
+
 set PYTHONPATH=%CD%
 %PYTHON% -m app.main
 pause
