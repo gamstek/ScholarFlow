@@ -128,6 +128,7 @@ class PaperRepository:
         title: str,
         abstract: Optional[str] = None,
         authors: Optional[list[str]] = None,
+        author_affiliations: Optional[list[dict]] = None,
         year: Optional[int] = None,
         journal: Optional[str] = None,
         doi: Optional[str] = None,
@@ -149,8 +150,22 @@ class PaperRepository:
 
         去重逻辑：DOI > PMID > PMCID > title + year。
         使用 PostgreSQL ON CONFLICT 实现原子操作。
+
+        authors_json 存储采用 [{"name": "..."}] 格式，
+        若提供 author_affiliations 则直接使用，否则从 authors (list[str]) 转换。
         """
         normalized_doi = normalize_doi(doi)
+
+        # 构建 authors_json（list[dict] with name）
+        if author_affiliations:
+            authors_json_value = json.dumps(author_affiliations, ensure_ascii=False)
+        elif authors:
+            authors_json_value = json.dumps(
+                [{"name": n} for n in authors],
+                ensure_ascii=False,
+            )
+        else:
+            authors_json_value = None
 
         async with async_session_factory() as session:
             existing = await self._find_existing_paper(
@@ -161,7 +176,7 @@ class PaperRepository:
                 # 更新已有记录
                 values = {
                     "abstract": abstract or existing.abstract,
-                    "authors_json": to_json(authors) or existing.authors_json,
+                    "authors_json": authors_json_value or existing.authors_json,
                     "year": year or existing.year,
                     "journal": journal or existing.journal,
                     "doi": normalized_doi or existing.doi,
@@ -195,7 +210,7 @@ class PaperRepository:
                 paper = Paper(
                     title=title,
                     abstract=abstract,
-                    authors_json=to_json(authors),
+                    authors_json=authors_json_value,
                     year=year,
                     journal=journal,
                     doi=normalized_doi,
@@ -326,6 +341,13 @@ class PaperRepository:
                 stmt = update(Paper).where(Paper.id == paper_id).values(**values)
                 await session.execute(stmt)
                 await session.commit()
+
+    async def update_title(self, paper_id: int, title: str) -> None:
+        """更新文献标题（从 PDF metadata 同步）。"""
+        async with async_session_factory() as session:
+            stmt = update(Paper).where(Paper.id == paper_id).values(title=title)
+            await session.execute(stmt)
+            await session.commit()
 
     async def delete_paper(self, paper_id: int) -> bool:
         """删除文献记录及关联的 chunks（数据库级联删除）。"""

@@ -3,9 +3,9 @@
 This file acts as the standing checklist for all future work in this repository. Before making changes or giving implementation advice, always read and follow these points.
 
 ## Always follow
-- Keep the project goal centered on a **generic, domain-agnostic literature collection Agent**.
+- Keep the project goal centered on a **biomedical literature collection Agent**（生物医学文献采集智能体）。
 - Prefer a **hybrid acquisition path**: official website first, API fallback.
-- Remove any hard-coded bias toward a specific domain unless the user explicitly asks for it.
+- The default domain is **biomedical / life sciences**（生物医学/生命科学）；retargeting to a new domain requires explicit user approval and charter update.
 - Preserve a small number of **configuration points** so the project can be retargeted to a new domain with minimal changes.
 - Treat the frontend as a **modern, high-end scientific workbench**; favor clarity, polish, and a technology-style visual language.
 - Keep `dev_log.md` as the single source of truth for development history.
@@ -19,7 +19,7 @@ This file acts as the standing checklist for all future work in this repository.
 - If it does, update the charter or ask for confirmation first.
 
 ## Success criteria
-- The codebase stays domain-neutral.
+- The codebase stays focused on biomedical literature, with clear extension points for other domains.
 - The acquisition pipeline remains extensible.
 - The UI feels polished and professional.
 - Logging stays consolidated and easy to review.

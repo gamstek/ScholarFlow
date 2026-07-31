@@ -62,7 +62,7 @@ export interface SearchHit {
   title: string;
   abstract: string | null;
   authors: string[] | null;
-  author_affiliations: Array<{ name: string; institution: string | null }> | null;
+  author_affiliations: Array<{ name: string }> | null;
   year: number | null;
   journal: string | null;
   doi: string | null;
@@ -77,6 +77,7 @@ export interface SearchHit {
   domain_score: number;
   in_library: boolean;
   paper_id: number | null;
+  library_status: string | null;
   tags: string[];
 }
 
@@ -224,7 +225,6 @@ export const api = {
     author?: string;
     journal?: string;
     preprint_sources?: string[];
-    institution?: string;
     language?: string;
     max_total?: number;
   }) => post<SearchResult>('/search', params),
@@ -241,7 +241,6 @@ export const api = {
       author?: string;
       journal?: string;
       preprint_sources?: string[];
-      institution?: string;
       language?: string;
       max_total?: number;
     },
@@ -292,6 +291,7 @@ export const api = {
     title: string;
     abstract?: string | null;
     authors?: string[] | null;
+    author_affiliations?: Array<{ name: string }> | null;
     year?: number | null;
     journal?: string | null;
     doi?: string | null;
@@ -308,6 +308,38 @@ export const api = {
   // 触发后台流水线
   processPaper: (paperId: number) =>
     post<ProcessResult>(`/papers/${paperId}/process`, {}),
+
+  // 批量入库（metadata）
+  importPapersBatch: (papers: Array<{
+    title: string;
+    abstract?: string | null;
+    authors?: string[] | null;
+    author_affiliations?: Array<{ name: string }> | null;
+    year?: number | null;
+    journal?: string | null;
+    doi?: string | null;
+    pmid?: string | null;
+    pmcid?: string | null;
+    source?: string;
+    url?: string | null;
+    pdf_url?: string | null;
+    license?: string | null;
+    is_open_access?: number;
+    domain_score?: number;
+  }>) => post<{
+    total: number;
+    success_count: number;
+    failed_count: number;
+    results: Array<{ success: boolean; paper_id?: number; title?: string; error?: string }>;
+  }>('/papers/import-batch', { papers }),
+
+  // 批量处理
+  processPapersBatch: (paperIds: number[]) => post<{
+    total: number;
+    triggered: number;
+    not_found: number;
+    results: Array<{ paper_id: number; success: boolean; title?: string; error?: string }>;
+  }>('/papers/process-batch', { paper_ids: paperIds }),
 
   // 删除文献
   deletePaper: (paperId: number) =>
@@ -338,10 +370,6 @@ export const api = {
 
   // 翻译
   translate: (text: string) => post<{ translated: string; original: string; note?: string }>('/translate', { text }),
-
-  // 机构排名
-  getInstitutions: (limit = 20) =>
-    get<{ institutions: Array<{ name: string; count: number }>; total_unique: number }>(`/institutions?limit=${limit}`),
 
   // 管理工具 — 清除缓存
   clearSessions: () => post<{ cleared: boolean; message: string }>('/admin/clear-sessions', {}),

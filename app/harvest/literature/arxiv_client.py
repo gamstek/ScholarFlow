@@ -28,6 +28,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Any, Optional
 
+from app.harvest.literature._http_utils import decode_response_body
 from app.harvest.literature.europe_pmc_client import PaperMetadata
 
 
@@ -189,13 +190,16 @@ class ArxivClient:
                             f"arXiv 请求失败，HTTP 状态码：{status_code}"
                         )
 
-                    return response.read().decode("utf-8")
+                    raw = response.read()
+                    content_type = response.headers.get("Content-Type", "")
+                    return decode_response_body(raw, content_type)
 
             except (
                 urllib.error.URLError,
                 urllib.error.HTTPError,
                 TimeoutError,
                 RuntimeError,
+                UnicodeDecodeError,
             ) as exc:
                 last_error = exc
 

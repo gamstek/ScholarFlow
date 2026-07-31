@@ -25,6 +25,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Optional
 
+from app.harvest.literature._http_utils import decode_response_body
 from app.harvest.literature.europe_pmc_client import PaperMetadata
 
 
@@ -59,7 +60,6 @@ class PubmedClient:
         max_results: int = 20,
         author: str | None = None,
         journal: str | None = None,
-        institution: str | None = None,
         language: str | None = None,
     ) -> list[PaperMetadata]:
         """
@@ -70,7 +70,6 @@ class PubmedClient:
             max_results: 最多返回多少条文献。
             author: 按作者名过滤（PubMed 支持 [AU] 字段）。
             journal: 按期刊名过滤（PubMed 支持 [TA] 字段）。
-            institution: 按机构名过滤（PubMed 支持 [AD] 字段）。
             language: 语言过滤（PubMed 支持 [LA] 字段）："zh"=中文 / "en"=英文 / None=不限。
 
         返回：
@@ -87,8 +86,6 @@ class PubmedClient:
             search_terms.append(f'{author.strip()}[AU]')
         if journal and journal.strip():
             search_terms.append(f'"{journal.strip()}"[TA]')
-        if institution and institution.strip():
-            search_terms.append(f'{institution.strip()}[AD]')
         if language and language.strip() in ("zh", "chi"):
             search_terms.append('chinese[LA]')
         elif language and language.strip() == "en":
@@ -160,17 +157,13 @@ class PubmedClient:
             if not item:
                 continue
 
-            # 解析作者 + 机构
+            # 解析作者
             authors_raw = item.get("authors", [])
             authors: list[str] = []
-            author_affiliations: list[dict] = []
             for a in authors_raw:
                 name = a.get("name", "")
                 if name:
                     authors.append(name)
-                    aff = a.get("affiliation") or None
-                    author_affiliations.append({"name": name, "institution": aff})
-            author_affiliations = author_affiliations if author_affiliations else None
 
             # 解析年份
             pubdate = item.get("pubdate", "")
@@ -202,7 +195,7 @@ class PubmedClient:
                 title=item.get("title", ""),
                 abstract=None,  # esummary 不包含 abstract，需额外 efetch
                 authors=authors if authors else None,
-                author_affiliations=author_affiliations,
+                author_affiliations=None,
                 year=year,
                 journal=journal or None,
                 doi=doi,
@@ -229,8 +222,10 @@ class PubmedClient:
             try:
                 request = urllib.request.Request(url=url, headers=headers, method="GET")
                 with urllib.request.urlopen(request, timeout=self.timeout) as resp:
-                    return json.loads(resp.read().decode("utf-8"))
-            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
+                    raw = resp.read()
+                    content_type = resp.headers.get("Content-Type", "")
+                    return json.loads(decode_response_body(raw, content_type))
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, UnicodeDecodeError) as exc:
                 last_error = exc
                 if attempt < self.max_retries:
                     time.sleep(self.retry_sleep * attempt)

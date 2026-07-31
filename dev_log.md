@@ -22,6 +22,67 @@
 
 ## 开发时间线
 
+### 2026-07-28
+
+重构(app, frontend, docs): 全面移除机构（institution）搜索功能
+
+- **原因**：实测发现机构搜索完全不可用——Europe PMC 不返回 affiliations 数据导致 `_filter_by_institution` 全部误杀（0 结果），PubMed 的 `match_institution` 因子串匹配产生假阳性（"MIT" 误匹配 "Smith"/"Mittone"），`author_affiliations` 在所有源中均为 None。
+- **删除范围**：
+  1. `name_utils.py` — 删除 `match_institution()` 函数。
+  2. `filters.py` — 删除 `institution_bonus` 参数、`_target_institution` 字段、`prepare()` 的 `institution` 参数、评分中的机构加分逻辑。
+  3. `harvester.py` — 删除 `_filter_by_institution()` 方法；`search_only()`/`search_only_stream()`/`_search_one_source()` 删除 `institution` 参数及调用。
+  4. `pubmed_client.py` / `openalex_client.py` — 删除 `search()` 的 `institution` 参数和相关查询构建逻辑；简化作者解析为仅捕获姓名。
+  5. `pipeline_service.py` — 删除 `search_papers_service()`/`search_papers_stream_service()` 的 `institution` 参数。
+  6. `main.py` — 删除 `GET /institutions` 端点；删除 `SearchRequest.institution` 字段；更新搜索端点的参数校验。
+  7. `author_utils.py` — 简化为 `list[str]` 格式，删除所有 institution 相关处理。
+  8. `repositories.py` — 简化 `authors_json` 构建。
+  9. `frontend/src/` — 删除 `SearchPage.tsx` 机构筛选 UI（输入框、下拉框、状态）；删除 `api.ts` 中 `getInstitutions` 和 `institution` 类型。
+  10. `docs/specs/2026-07-22-author-institution-search.md` — 删除。
+- **重建**：前端 `npm run build` 已重新构建。
+
+调试(app/harvest/literature, scripts, app/config): 全量数据源稳定性验证与修复
+
+- **问题**：Semantic Scholar 免费 API（无 key）频繁返回 429 速率限制，`_request_search_page()` 中 `attempt -= 1` 导致无限重试循环（实测 44s+ 仍不休止）。
+- **修复**：
+  1. 429 重试改为指数退避（2s→4s→8s→16s→32s）+ 累计上限 45s 后快速失败，给出明确错误提示含 API key 注册链接。
+  2. `AppConfig` 新增 `semantic_scholar_api_key` / `pubmed_api_key` 字段，从 `.env` 的 `SEMANTIC_SCHOLAR_API_KEY` / `PUBMED_API_KEY` 读取。
+  3. `LiteratureHarvester.__init__()` 注入 API key 到 `SemanticScholarClient` 和 `PubmedClient`。
+  4. `.env` / `.env.example` 新增 `SEMANTIC_SCHOLAR_API_KEY` / `PUBMED_API_KEY` 配置项（含注册链接说明）。
+- **验证**：新建 `scripts/11_test_sources.py` 全量稳定性测试脚本——逐一测试 8 个数据源的连通性、响应时间和结果质量。测试结果：
+  - ✅ Europe PMC (2.3s) / arXiv (1.0s) / PubMed (2.4s) / OpenAlex (3.9s) / Nature (2.6s) / Science (2.2s) / Cell (2.4s) — 全部正常。
+  - ❌ Semantic Scholar — 免费 tier 429 限流，31s 后快速失败（含修复提示）。
+
+### 2026-07-23
+
+代码生成(app/agent/name_utils, app/harvest/harvester, app/domain/filters): 作者/机构本地精确匹配与评分加分
+
+- **问题**：按作者搜索时，作者筛选完全委托给外部 API（`AUTH:"name"` 语法），中文名依赖 `pypinyin` 转拼音后构建 OR 查询。但 PubMed、OpenAlex 未使用 `name_utils` 转换，Nature/Science/Cell 不支持 author 参数，导致中文作者名匹配失败。
+- **修复思路**：改为「API 层粗筛 + 本地精确比对」双层架构：
+  1. `name_utils.py` 新增 `match_author()`（支持中文→拼音、首字母缩写匹配、双向包含）和 `match_institution()`（大小写不敏感包含匹配）。
+  2. `_search_one_source()` 新增 query 回退：当 query 为空但 author 不为空时，用 `build_author_keyword_query()` 将作者拼音变体作为关键词检索词，确保所有 API 都能返回候选论文。
+  3. `harvester.py` 新增 `_filter_by_author()` / `_filter_by_institution()`：在去重后做本地精确过滤。
+  4. `QueryDrivenScorer.prepare()` 新增 `author`/`institution` 参数；`score_papers_batch()` 和 `score_paper()` 对匹配作者/机构的论文分别加 0.15/0.10 的 domain_score 加分。
+- **依赖修复**：确认 `pypinyin` 已在 scholarflow 环境中安装（requirements.txt 已声明但此前未生效）。
+
+调试(app/harvest, frontend): 前端按钮与实际效果不符——系统性 debug 与修复
+
+- **P0 Bug#7**：`search_only_stream()` SSE 结果 dict 缺少 `tags` 字段，前端流式检索时论文标签（综述/经典）永不渲染。修复：SSE result dict 补全 `"tags": h.tags`。
+- **P0 Bug#8**：`_batch_check_in_library()` 不返回 paper.status，前端无法区分「仅元数据」和「已索引」。修复：查询增加 `Paper.status` 字段；`SearchHit` 新增 `library_status`；前端 `PaperCard` 状态显示细化为"已索引/已切块/已解析/已下载PDF/已入库"。
+- **P1 Bug#1**：搜索结果「入库」按钮在 importPaper 成功但 processPaper 失败时，状态回滚导致 UI 显示"未入库"而实际已入库。修复：`setImportedIds` 和 `setResult` 提前到 importPaper 成功后执行；processPaper 失败仅警告不改变入库状态。
+- **P1 Bug#9**：缺少批量入库/处理 API。新增 `POST /papers/import-batch`（批量 metadata 入库）和 `POST /papers/process-batch`（批量触发流水线），前端 `api.ts` 同步新增 `importPapersBatch()` / `processPapersBatch()`。
+- **P2 Bug#2**：「处理」按钮每篇论文独立创建 `setInterval` 轮询 + 30s 硬超时，多篇并发时多定时器竞争。修复：改为全局单一 `useRef` 轮询，检查 `processingIds` 中所有论文状态，全部 `done/failed` 或 60 轮（2分钟）后自动停止。
+- **P2 Bug#10**：`_run_pipeline_for_paper()` 每步调用 `list_*_candidates(limit=200)` 再做 O(n) 扫描，批量时 O(n²)。修复：改为直接按 `paper_id` 查询 `PaperRepository.get_paper()` 并检查字段状态，消除候选列表扫描。
+- **P3 Bug#3**：前后端双重排序冗余。修复：前端 `handleSearch` 不再传 `sort_by`/`sort_order` 给后端，仅依赖客户端 `useMemo` 排序。
+- **P3 Bug#5**：`/papers` 返回 `count` 但前端类型期望 `total`。修复：后端统一改为 `"total"`。
+- **P3 Bug#6**：「新建对话」无视觉反馈。修复：点击后显示占位欢迎消息 `"👋 新对话已就绪..."`，同时清除 localStorage 中的旧 session ID。
+
+重构(start.bat, .env.example): 安全性加固与跨机器移植适配
+
+- **安全问题**：`.env` 含真实 `CLOUD_API_KEY`，即使已加入 `.gitignore`，通过 U盘/压缩包分享时仍会泄露。修复：新建 `.env.example` 模板文件，密钥字段替换为占位符 `YOUR_API_KEY`。
+- **启动顺序 bug**：`start.bat` 在原逻辑中先检查 Ollama 再加载 `.env`，导致 `LLM_BACKEND=deepseek` 时仍会尝试启动 Ollama。修复：`.env` 加载移至最前，Ollama 检查改为 `if "%LLM_BACKEND%"=="ollama"` 条件化。
+- **Python 路径自适应**：新增 `venv\Scripts\python.exe` 检测层级（优先级：项目内 venv > conda scholarflow > 系统 python），`start.bat` 可通用于不同机器的不同 Python 安装方式。
+- **错误提示改进**：Python 未找到时给出两条具体操作建议（运行 install_deps.bat 或手动 conda activate）；Ollama 未运行时降级为 `[WARN]` 而非阻塞退出，并提示可切换云端 API。
+
 ### 2026-07-22
 
 代码生成(app/harvest, app/services, app/main.py, frontend): 新增机构筛选功能

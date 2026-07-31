@@ -121,6 +121,7 @@ class QueryDrivenScorer:
         self,
         model_name: Optional[str] = None,
         device: Optional[str] = None,
+        author_bonus: float = 0.15,
     ) -> None:
         """
         初始化评分器。
@@ -128,21 +129,29 @@ class QueryDrivenScorer:
         参数：
             model_name: embedding 模型路径，None 使用默认 BGE-M3。
             device: 运行设备，None 自动选择。
+            author_bonus: 作者名匹配时的 domain_score 加分（0~1）。
         """
         self.model_name = model_name or self.DEFAULT_MODEL
         self.device = device
+        self.author_bonus = author_bonus
 
         self._query_vec: Optional[np.ndarray] = None
         self._query: Optional[str] = None
+        self._target_author: Optional[str] = None
 
-    def prepare(self, query: str) -> None:
+    def prepare(
+        self,
+        query: str,
+        author: Optional[str] = None,
+    ) -> None:
         """
-        预处理：向量化用户查询。
+        预处理：向量化用户查询，并记录目标作者用于后续匹配加分。
 
         在批量评分前调用一次，避免每篇文献都重复向量化查询。
 
         参数：
             query: 用户检索词。
+            author: 目标作者名（可选），用于匹配加分。
         """
         if not query or not query.strip():
             raise ValueError("query 不能为空。")
@@ -154,11 +163,14 @@ class QueryDrivenScorer:
 
         self._query = query.strip()
         self._query_vec = embedder.encode_query(self._query)
+        self._target_author = author.strip() if author and author.strip() else None
 
     def score_paper(
         self,
         title: str,
         abstract: Optional[str] = None,
+        authors: Optional[list[str]] = None,
+        author_affiliations: Optional[list[dict]] = None,
     ) -> DomainFilterResult:
         """
         对单篇文献评分。
@@ -166,6 +178,8 @@ class QueryDrivenScorer:
         参数：
             title: 文献标题。
             abstract: 文献摘要，可选。
+            authors: 作者名列表，用于作者匹配加分，可选。
+            author_affiliations: 作者机构列表，用于机构匹配加分，可选。
 
         返回：
             DomainFilterResult。
@@ -201,13 +215,28 @@ class QueryDrivenScorer:
         # 相似度通常在 0~1 之间（归一化向量），
         # 但也可能出现负值，截断到 [0, 1]
         similarity = max(0.0, min(similarity, 1.0))
-        domain_score = round(similarity, 4)
+
+        # ---- 作者/机构匹配加分 ----
+        bonus = 0.0
+        bonus_reasons: list[str] = []
+
+        if self._target_author:
+            from app.agent.name_utils import match_author
+            if match_author(self._target_author, authors):
+                bonus += self.author_bonus
+                bonus_reasons.append("作者匹配")
+
+        domain_score = round(min(similarity + bonus, 1.0), 4)
 
         # 保留决策：相似度 >= 阈值则保留
-        keep = similarity >= 0.30
+        keep = domain_score >= 0.30
 
         if keep:
-            reason = f"语义相似度 {domain_score:.2f}，与查询相关。"
+            base_reason = f"语义相似度 {similarity:.2f}"
+            if bonus_reasons:
+                reason = f"{base_reason}，{' + '.join(bonus_reasons)} → {domain_score:.2f}"
+            else:
+                reason = f"{base_reason}，与查询相关。"
         else:
             reason = f"语义相似度 {domain_score:.2f}，与查询相关性不足。"
 
@@ -227,6 +256,8 @@ class QueryDrivenScorer:
 
         参数：
             papers: 文献列表，每项需包含 title 字段，abstract 可选。
+                    可选字段：authors (list[str])、author_affiliations (list[dict])
+                    用于作者/机构匹配加分。
 
         返回：
             与 papers 等长的 DomainFilterResult 列表。
@@ -275,11 +306,28 @@ class QueryDrivenScorer:
                 paper_vec = batch_result.embeddings[idx]
                 similarity = float(np.dot(query_vec, paper_vec))
                 similarity = max(0.0, min(similarity, 1.0))
-                domain_score = round(similarity, 4)
 
-                keep = similarity >= 0.30
+                # ---- 作者/机构匹配加分 ----
+                bonus = 0.0
+                bonus_reasons: list[str] = []
+                paper = papers[paper_idx]
+
+                if self._target_author:
+                    from app.agent.name_utils import match_author
+                    paper_authors = paper.get("authors")
+                    if match_author(self._target_author, paper_authors):
+                        bonus += self.author_bonus
+                        bonus_reasons.append("作者匹配")
+
+                domain_score = round(min(similarity + bonus, 1.0), 4)
+
+                keep = domain_score >= 0.30
                 if keep:
-                    reason = f"语义相似度 {domain_score:.2f}，与查询相关。"
+                    base_reason = f"语义相似度 {similarity:.2f}"
+                    if bonus_reasons:
+                        reason = f"{base_reason}，{' + '.join(bonus_reasons)} → {domain_score:.2f}"
+                    else:
+                        reason = f"{base_reason}，与查询相关。"
                 else:
                     reason = f"语义相似度 {domain_score:.2f}，与查询相关性不足。"
 

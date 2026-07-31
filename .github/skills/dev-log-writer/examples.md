@@ -3,33 +3,33 @@
 ## 示例 1：需求分析
 
 ```
-### 2026-06-15
-需求分析(项目/闭环目标): 初始设计
+### 2026-07-23
+需求分析(app/agent/name_utils, app/harvest/harvester): 作者/机构本地精确匹配方案设计
 
-- 设计了 5 层检索管线架构（Query Builder → Search Provider → 去重+评分 → 页面抓取 → Claude API 提取）
-- 确认 11 个查询维度，写好了 prompt 模板
-- 原因：面临批量查询大量仪器自动化适配信息的任务，需要统一的自动化管线而非手工逐台搜索
-- 结果：产出了架构设计文档、`prompt.txt` 初版、`instrument_loop.py` 骨架
+- 问题：中文作者名经 pypinyin 转拼音后，部分 API（PubMed、Nature 等）未使用 name_utils 转换，导致匹配失败
+- 方案：设计「API 层粗筛 + 本地精确比对」双层架构
+- 原因：外部 API 对中文名支持不一致，需在本地做二次过滤保证召回率
+- 结果：name_utils 新增 match_author()/match_institution()，harvester 新增 _filter_by_author()/_filter_by_institution()
 ```
 
 ## 示例 2：代码生成
 
 ```
-### 2026-06-20
-代码生成(instrument_loop): 实现搜索与去重主循环
+### 2026-07-23
+代码生成(frontend, app/api): 批量入库/处理 API + 前端轮询优化
 
-- 新增 Query Builder 与 Search Provider 接口封装
-- 接入 URL 去重与基础评分逻辑
-- 结果：`instrument_loop.py` 可单型号端到端跑通
+- 新增 POST /papers/import-batch 和 POST /papers/process-batch 端点
+- 前端新增 importPapersBatch() / processPapersBatch() API 封装
+- 结果：批量操作从 N 次请求降为 1 次，前端轮询从多定时器竞争改为全局单一 useRef
 ```
 
 ## 示例 3：用户推翻方案
 
 ```
-### 2026-06-24
-文档生成(日志机制): 由模型使用说明迁移至 dev_log
+### 2026-07-23
+重构(start.bat, .env.example): 安全性加固与跨机器移植适配
 
-- 原方案：维护 `模型使用说明.md` + model-usage-recorder Skill
-- 用户意见：不再维护模型使用说明，Skill 放项目级
-- 最终采纳：新建 `.cursor/skills/dev-log-writer/`，统一写 `dev_log.md`
+- 原方案：start.bat 中包含硬编码密码，.env.example 含默认凭据
+- 用户意见：移除所有硬编码密码，改为占位符，适配不同机器的端口和路径
+- 最终采纳：start.bat 改为读取 .env 变量，.env.example 仅保留占位值
 ```

@@ -26,12 +26,14 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# 导入共享环境工具模块
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_lib"))
+from env_utils import PROJECT_ROOT, DEFAULT_CONDA_ENV, run_cmd, list_conda_envs, create_conda_env  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # 常量
 # ---------------------------------------------------------------------------
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 CHECK_SCRIPT = Path(__file__).resolve().parent.parent / "check-dependencies" / "check_env.py"
-DEFAULT_ENV_NAME = "scholarflow"
 DEFAULT_PYTHON = "3.11"
 
 # 不可自动修复的类别
@@ -40,81 +42,7 @@ MANUAL_ONLY_CATEGORIES = {"Python", "Ollama", "PostgreSQL", "FAISS", "磁盘", "
 
 # ---------------------------------------------------------------------------
 # 工具函数
-# ---------------------------------------------------------------------------
-
-def run_cmd(cmd: List[str], timeout: int = 120) -> Tuple[int, str, str]:
-    """运行命令."""
-    try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout,
-            shell=(sys.platform == "win32"),
-            encoding="utf-8", errors="replace",  # 避免 Windows GBK 编码错误
-        )
-        stdout = proc.stdout.strip() if proc.stdout else ""
-        stderr = proc.stderr.strip() if proc.stderr else ""
-        return proc.returncode, stdout, stderr
-    except FileNotFoundError:
-        return -1, "", f"Command not found: {cmd[0] if isinstance(cmd, list) else cmd}"
-    except subprocess.TimeoutExpired:
-        return -2, "", "Command timed out"
-
-
-def list_conda_envs() -> Dict[str, Any]:
-    """列出所有 conda 环境，检查 scholarflow 是否存在."""
-    result: Dict[str, Any] = {
-        "conda_available": False,
-        "scholarflow_exists": False,
-        "scholarflow_path": None,
-        "all_envs": [],
-    }
-
-    ret, out, _ = run_cmd(["conda", "--version"])
-    if ret != 0:
-        return result
-    result["conda_available"] = True
-
-    ret2, out2, _ = run_cmd(["conda", "env", "list"])
-    if ret2 != 0:
-        return result
-
-    for line in out2.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split()
-        if not parts:
-            continue
-        name = parts[0]
-        # 跳过路径格式的行
-        if re.match(r"^[A-Za-z]:|^/|^\\\\", name):
-            continue
-        if name == "base":
-            continue
-        result["all_envs"].append(name)
-        if name == DEFAULT_ENV_NAME:
-            result["scholarflow_exists"] = True
-            # 提取路径
-            for p in parts[1:]:
-                if p not in ("*", ""):
-                    result["scholarflow_path"] = p
-                    break
-
-    return result
-
-
-def create_conda_env(name: str = DEFAULT_ENV_NAME, python_ver: str = DEFAULT_PYTHON) -> bool:
-    """创建 conda 环境."""
-    print(f"[创建] 正在创建 conda 环境 '{name}' (Python {python_ver})...")
-    ret, out, err = run_cmd(
-        ["conda", "create", "-n", name, f"python={python_ver}", "-y"],
-        timeout=300
-    )
-    if ret == 0:
-        print(f"[成功] 环境 '{name}' 创建完成。")
-        return True
-    else:
-        print(f"[失败] 创建环境失败:\n{err or out}")
-        return False
+# ---------------------------------------------------------------------------# run_cmd / list_conda_envs / create_conda_env 已从 _lib.env_utils 导入
 
 
 def run_check_in_env(env_name: str) -> Optional[Dict[str, Any]]:
@@ -272,7 +200,7 @@ def main():
 
     # --create-env [NAME]
     p_create = sub.add_parser("create-env", help="创建 conda 环境")
-    p_create.add_argument("name", nargs="?", default=DEFAULT_ENV_NAME, help="环境名 (默认: scholarflow)")
+    p_create.add_argument("name", nargs="?", default=DEFAULT_CONDA_ENV, help="环境名 (默认: scholarflow)")
     p_create.add_argument("--python", default=DEFAULT_PYTHON, help="Python 版本 (默认: 3.11)")
 
     # --check ENV
@@ -294,7 +222,7 @@ def main():
     if args.command == "find-env":
         envs = list_conda_envs()
         print(json.dumps(envs, ensure_ascii=False, indent=2))
-        sys.exit(0 if envs["scholarflow_exists"] else 1)
+        sys.exit(0 if envs["target_exists"] else 1)
 
     elif args.command == "create-env":
         ok = create_conda_env(args.name, args.python)

@@ -24,4 +24,4 @@ python .github/skills/check-dependencies/check_env.py --json
 python .github/skills/check-dependencies/check_env.py --target-env scholarflow
 ```
 
-检测基于 `requirements.txt`，覆盖 `==`、`>=`、`>=X,<Y` 等版本约束。对 PyTorch 会按 GPU 计算能力自动匹配正确版本。
+检测基于 `requirements.txt`，覆盖 `==`、`>=`、`>=X,<Y` 等版本约束。对 PyTorch 会按 GPU 计算能力自动匹配正确版本（RTX 30→cu121, RTX 40→cu124, RTX 50→cu128），并推荐对应的 `requirements-rtxXX.txt`。

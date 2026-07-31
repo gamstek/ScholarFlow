@@ -1,7 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { usePapers } from '../hooks/usePapers';
 import { api } from '../lib/api';
-import { Database, FileText, CheckCircle2, Clock, RefreshCw, BookOpen, FolderOpen, Play, Loader2, AlertCircle, XCircle, Upload, Eye, Trash2 } from 'lucide-react';
+import { Database, FileText, CheckCircle2, Clock, RefreshCw, BookOpen, FolderOpen, Play, Loader2, AlertCircle, XCircle, Upload, Eye, Trash2, CheckSquare, Square } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState } from '../components/EmptyState';
 import type { Paper } from '../lib/api';
@@ -23,6 +23,9 @@ const STEP_LABELS: Record<string, string> = {
   failed:           '失败',
 };
 
+const POLL_INTERVAL = 2000;       // 轮询间隔 2s
+const MAX_POLL_ROUNDS = 60;       // 最大轮询次数（2 分钟）
+
 interface LibraryPageProps {
   onSelectPaper: (paperId: number) => void;
 }
@@ -34,8 +37,14 @@ export function LibraryPage({ onSelectPaper }: LibraryPageProps) {
   const [expandedSource, setExpandedSource] = useState<Set<number>>(new Set());
   const [uploadingId, setUploadingId] = useState<number | null>(null);
   const [standaloneUploading, setStandaloneUploading] = useState(false);
+  const [selectedPaperIds, setSelectedPaperIds] = useState<Set<number>>(new Set());
+  const [batchProcessing, setBatchProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const standaloneFileInputRef = useRef<HTMLInputElement>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollCountRef = useRef<number>(0);
+  const papersRef = useRef(papers);
+  papersRef.current = papers;  // 始终保持最新引用
 
   const paperList = papers.data?.papers || [];
   const statData = stats.data;
@@ -44,23 +53,56 @@ export function LibraryPage({ onSelectPaper }: LibraryPageProps) {
   const indexedCount = statData?.paper_status?.find((s) => s.status === 'indexed')?.count || 0;
   const pendingCount = statData?.paper_status?.find((s) => s.status === 'metadata_only')?.count || 0;
 
+  // 全局单一轮询：检查 processingIds 中所有论文的状态
+  const startPolling = useCallback(() => {
+    if (pollTimerRef.current) return; // 已在轮询
+
+    pollCountRef.current = 0;
+    pollTimerRef.current = setInterval(async () => {
+      pollCountRef.current += 1;
+      await papersRef.current.refetch();
+
+      // 检查是否所有 processingIds 的论文都已完成或失败
+      const currentPapers = papersRef.current.data?.papers || [];
+      setProcessingIds((prev) => {
+        if (prev.size === 0) return prev;
+
+        const stillProcessing = new Set<number>();
+        for (const id of prev) {
+          const p = currentPapers.find((pp) => pp.id === id);
+          if (p && p.pipeline_step && p.pipeline_step !== 'done' && p.pipeline_step !== 'failed') {
+            stillProcessing.add(id);
+          }
+        }
+
+        // 全部完成或超时则停止轮询
+        if (stillProcessing.size === 0 || pollCountRef.current >= MAX_POLL_ROUNDS) {
+          if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
+          }
+          return new Set<number>(); // 清空
+        }
+        return stillProcessing;
+      });
+    }, POLL_INTERVAL);
+  }, []);  // 不再依赖 papers，通过 papersRef 读取最新值
+
+  // 组件卸载时清理轮询
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const handleProcess = async (paperId: number) => {
     setProcessingIds((prev) => new Set(prev).add(paperId));
     try {
       await api.processPaper(paperId);
-      // 轮询刷新，跟踪进度
-      const interval = setInterval(() => {
-        papers.refetch();
-      }, 2000);
-      // 30 秒后停止轮询
-      setTimeout(() => {
-        clearInterval(interval);
-        setProcessingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(paperId);
-          return next;
-        });
-      }, 30000);
+      startPolling();
     } catch {
       setProcessingIds((prev) => {
         const next = new Set(prev);
@@ -116,17 +158,8 @@ export function LibraryPage({ onSelectPaper }: LibraryPageProps) {
 
     try {
       await api.uploadPdf(uploadingId, file);
-      // 触发轮询刷新
       setProcessingIds((prev) => new Set(prev).add(uploadingId));
-      const interval = setInterval(() => papers.refetch(), 2000);
-      setTimeout(() => {
-        clearInterval(interval);
-        setProcessingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(uploadingId);
-          return next;
-        });
-      }, 30000);
+      startPolling();
     } catch {
       // 错误由 refetch 后的状态显示
     } finally {
@@ -142,22 +175,79 @@ export function LibraryPage({ onSelectPaper }: LibraryPageProps) {
     setStandaloneUploading(true);
     try {
       const result = await api.uploadStandalonePdf(file);
-      // 触发轮询刷新
       setProcessingIds((prev) => new Set(prev).add(result.paper_id));
-      const interval = setInterval(() => papers.refetch(), 2000);
-      setTimeout(() => {
-        clearInterval(interval);
-        setProcessingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(result.paper_id);
-          return next;
-        });
-      }, 30000);
+      startPolling();
     } catch {
       // 错误由 refetch 后的状态显示
     } finally {
       setStandaloneUploading(false);
       if (standaloneFileInputRef.current) standaloneFileInputRef.current.value = '';
+    }
+  };
+
+  // ---- 多选功能 ----
+  const toggleSelectPaper = (paperId: number) => {
+    setSelectedPaperIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(paperId)) next.delete(paperId); else next.add(paperId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllPapers = () => {
+    const processablePapers = paperList.filter(
+      (p) => p.status !== 'indexed' && !processingIds.has(p.id)
+    );
+    if (processablePapers.length === 0) return;
+
+    const allSelected = processablePapers.every((p) => selectedPaperIds.has(p.id));
+    if (allSelected) {
+      setSelectedPaperIds(new Set());
+    } else {
+      setSelectedPaperIds(new Set(processablePapers.map((p) => p.id)));
+    }
+  };
+
+  const handleBatchProcess = async () => {
+    if (selectedPaperIds.size === 0) return;
+    setBatchProcessing(true);
+
+    try {
+      // 过滤掉已索引或正在处理的
+      const idsToProcess = [...selectedPaperIds].filter((id) => {
+        const p = paperList.find((pp) => pp.id === id);
+        return p && p.status !== 'indexed' && !processingIds.has(id);
+      });
+
+      if (idsToProcess.length === 0) {
+        setSelectedPaperIds(new Set());
+        return;
+      }
+
+      const batchResult = await api.processPapersBatch(idsToProcess);
+
+      // 将触发成功的加入 processingIds 并启动轮询
+      const triggeredIds = batchResult.results
+        .filter((r) => r.success)
+        .map((r) => r.paper_id);
+      if (triggeredIds.length > 0) {
+        setProcessingIds((prev) => {
+          const next = new Set(prev);
+          triggeredIds.forEach((id) => next.add(id));
+          return next;
+        });
+        startPolling();
+      }
+
+      setSelectedPaperIds(new Set());
+
+      if (batchResult.not_found > 0 || batchResult.triggered < batchResult.total) {
+        // 部分失败，静默处理；状态会在 refetch 后通过 UI 体现
+      }
+    } catch {
+      // 错误由 refetch 后的状态显示
+    } finally {
+      setBatchProcessing(false);
     }
   };
 
@@ -168,6 +258,20 @@ export function LibraryPage({ onSelectPaper }: LibraryPageProps) {
         subtitle="已入库的文献列表与处理状态"
         actions={
           <div className="flex items-center gap-2">
+            {selectedPaperIds.size > 0 && (
+              <button
+                onClick={handleBatchProcess}
+                disabled={batchProcessing}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-medium transition-colors"
+              >
+                {batchProcessing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Play className="w-3.5 h-3.5" />
+                )}
+                {batchProcessing ? '处理中...' : `一键处理 (${selectedPaperIds.size})`}
+              </button>
+            )}
             <button
               onClick={() => standaloneFileInputRef.current?.click()}
               disabled={standaloneUploading}
@@ -209,6 +313,20 @@ export function LibraryPage({ onSelectPaper }: LibraryPageProps) {
           <table className="w-full text-sm table-fixed">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs w-10">
+                  <button
+                    onClick={toggleSelectAllPapers}
+                    className="text-gray-400 hover:text-indigo-500 transition-colors"
+                    title="全选可处理文献"
+                  >
+                    {paperList.filter((p) => p.status !== 'indexed' && !processingIds.has(p.id)).length > 0 &&
+                      paperList.filter((p) => p.status !== 'indexed' && !processingIds.has(p.id)).every((p) => selectedPaperIds.has(p.id)) ? (
+                      <CheckSquare className="w-3.5 h-3.5 text-indigo-500" />
+                    ) : (
+                      <Square className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </th>
                 <th className="text-left px-4 py-2.5 font-medium text-gray-500 text-xs w-12">序号</th>
                 <th className="text-left px-4 py-2.5 font-medium text-gray-500 text-xs">标题</th>
                 <th className="text-left px-4 py-2.5 font-medium text-gray-500 text-xs w-16">年份</th>
@@ -230,6 +348,21 @@ export function LibraryPage({ onSelectPaper }: LibraryPageProps) {
                 return (
                   <>
                     <tr key={paper.id} className="hover:bg-gray-50 transition-colors group">
+                      <td className="text-center px-3 py-2.5">
+                        {!isIndexed && !isProcessing && (
+                          <button
+                            onClick={() => toggleSelectPaper(paper.id)}
+                            className="text-gray-400 hover:text-indigo-500 transition-colors"
+                            title={selectedPaperIds.has(paper.id) ? '取消选择' : '选择'}
+                          >
+                            {selectedPaperIds.has(paper.id) ? (
+                              <CheckSquare className="w-3.5 h-3.5 text-indigo-500" />
+                            ) : (
+                              <Square className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        )}
+                      </td>
                       <td className="px-4 py-2.5 text-gray-400 text-xs tabular-nums">
                         {idx + 1}
                       </td>
@@ -340,7 +473,7 @@ export function LibraryPage({ onSelectPaper }: LibraryPageProps) {
                     </tr>
                     {hasError && isErrorExpanded && (
                       <tr className="bg-red-50/50">
-                        <td colSpan={7} className="px-4 py-3">
+                        <td colSpan={8} className="px-4 py-3">
                           <div className="flex items-start gap-2">
                             <XCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                             <div className="flex-1 min-w-0">
@@ -363,7 +496,7 @@ export function LibraryPage({ onSelectPaper }: LibraryPageProps) {
                     )}
                     {expandedSource.has(paper.id) && (
                       <tr className="bg-gray-50/70">
-                        <td colSpan={7} className="px-4 py-3">
+                        <td colSpan={8} className="px-4 py-3">
                           <SourceDataView paper={paper} onClose={() => toggleSource(paper.id)} />
                         </td>
                       </tr>

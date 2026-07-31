@@ -24,13 +24,15 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 from typing import Any, Dict, List, Optional
 
+# 导入共享环境工具模块
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_lib"))
+from env_utils import PROJECT_ROOT, DEFAULT_CONDA_ENV, list_conda_envs, create_conda_env  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # 路径常量
 # ---------------------------------------------------------------------------
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 CHECK_SCRIPT = Path(__file__).resolve().parent / "check_env.py"
 FIX_SCRIPT = Path(__file__).resolve().parent.parent / "fix-dependencies" / "fix_env.py"
-DEFAULT_ENV_NAME = "scholarflow"
 
 
 # ---------------------------------------------------------------------------
@@ -79,39 +81,7 @@ def run_check(env_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
             pass
 
 
-def list_conda_envs() -> List[str]:
-    """列出所有 conda 环境名."""
-    try:
-        proc = subprocess.run(
-            ["conda", "env", "list"], capture_output=True, text=True, timeout=30,
-            encoding="utf-8", errors="replace",
-        )
-        envs = []
-        for line in proc.stdout.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split()
-            if parts and not parts[0].startswith("/") and not parts[0].startswith("\\"):
-                name = parts[0]
-                if name not in ("base",) and name not in envs:
-                    envs.append(name)
-        return envs
-    except Exception:
-        return []
-
-
-def create_conda_env(name: str = DEFAULT_ENV_NAME) -> bool:
-    """创建 conda 环境."""
-    try:
-        proc = subprocess.run(
-            f'conda create -n {name} python=3.11 -y',
-            shell=True, capture_output=True, text=True, timeout=300,
-            encoding="utf-8", errors="replace",
-        )
-        return proc.returncode == 0
-    except Exception:
-        return False
+# list_conda_envs / create_conda_env 已从 _lib.env_utils 导入
 
 
 def run_fix(env_name: str, dry_run: bool = False) -> str:
@@ -430,7 +400,7 @@ class CheckGUI:
         """创建 scholarflow conda 环境."""
         if not messagebox.askyesno(
             "创建环境",
-            f"将创建名为 '{DEFAULT_ENV_NAME}' 的 conda 环境 (Python 3.11)。\n\n继续？",
+            f"将创建名为 '{DEFAULT_CONDA_ENV}' 的 conda 环境 (Python 3.11)。\n\n继续？",
         ):
             return
 
@@ -438,17 +408,17 @@ class CheckGUI:
         self.root.update()
 
         def _create():
-            ok = create_conda_env(DEFAULT_ENV_NAME)
+            ok = create_conda_env(DEFAULT_CONDA_ENV)
             self.root.after(0, lambda: self._after_create(ok))
 
         threading.Thread(target=_create, daemon=True).start()
 
     def _after_create(self, ok: bool):
         if ok:
-            messagebox.showinfo("成功", f"环境 '{DEFAULT_ENV_NAME}' 创建完成！\n将重新检测...")
-            self._start_check(DEFAULT_ENV_NAME)
+            messagebox.showinfo("成功", f"环境 '{DEFAULT_CONDA_ENV}' 创建完成！\n将重新检测...")
+            self._start_check(DEFAULT_CONDA_ENV)
         else:
-            messagebox.showerror("失败", f"无法创建环境 '{DEFAULT_ENV_NAME}'。\n请检查 conda 是否已安装。")
+            messagebox.showerror("失败", f"无法创建环境 '{DEFAULT_CONDA_ENV}'。\n请检查 conda 是否已安装。")
             self._start_check()
 
     def _on_select_env(self):

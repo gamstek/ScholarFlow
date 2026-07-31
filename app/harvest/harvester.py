@@ -28,6 +28,7 @@ import json as _json
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Callable, Optional
 
+from app.config import get_config as _get_config
 from app.domain.filters import QueryDrivenScorer
 from app.domain.paper_tags import classify_paper_tags
 from app.harvest.literature.europe_pmc_client import (
@@ -90,6 +91,7 @@ class SearchHit:
     domain_score: float
     in_library: bool
     paper_id: Optional[int]
+    library_status: Optional[str]
     tags: list[str]
 
 
@@ -149,8 +151,12 @@ class LiteratureHarvester:
         self.science_client = science_client or ScienceClient()
         self.cell_client = cell_client or CellClient()
         self.arxiv_client = arxiv_client or ArxivClient()
-        self.semantic_scholar_client = semantic_scholar_client or SemanticScholarClient()
-        self.pubmed_client = pubmed_client or PubmedClient()
+        self.semantic_scholar_client = semantic_scholar_client or SemanticScholarClient(
+            api_key=_get_config().semantic_scholar_api_key or None,
+        )
+        self.pubmed_client = pubmed_client or PubmedClient(
+            api_key=_get_config().pubmed_api_key or None,
+        )
         self.openalex_client = openalex_client or OpenAlexClient()
         self.min_domain_score = min_domain_score
 
@@ -214,7 +220,6 @@ class LiteratureHarvester:
         author: str | None = None,
         journal: str | None = None,
         preprint_sources: list[str] | None = None,
-        institution: str | None = None,
         language: str | None = None,
         max_total: int | None = None,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
@@ -264,7 +269,6 @@ class LiteratureHarvester:
                     author=author,
                     journal=journal,
                     preprint_sources=preprint_sources,
-                    institution=institution,
                     language=language,
                 )
                 return (source, papers, None)
@@ -299,13 +303,22 @@ class LiteratureHarvester:
         all_papers = self._deduplicate(all_papers)
         deduplicated_count = len(all_papers)
 
-        # 3. 查询驱动批量评分（纯作者/机构搜索时用作者/机构名作为评分回退）
-        scorer_query = query.strip() if query and query.strip() else (author or institution or "")
+        # 2b. 本地作者精确过滤（API 层粗筛后做本地精确比对）
+        if author and author.strip():
+            all_papers = self._filter_by_author(all_papers, author)
+
+        # 3. 查询驱动批量评分（纯作者搜索时用作者名作为评分回退）
+        scorer_query = query.strip() if query and query.strip() else (author or "")
         scorer = QueryDrivenScorer()
-        scorer.prepare(query=scorer_query)
+        scorer.prepare(query=scorer_query, author=author)
 
         paper_dicts = [
-            {"title": p.title, "abstract": p.abstract}
+            {
+                "title": p.title,
+                "abstract": p.abstract,
+                "authors": p.authors,
+                "author_affiliations": p.author_affiliations,
+            }
             for p in all_papers
         ]
         filter_results = scorer.score_papers_batch(paper_dicts)
@@ -336,15 +349,22 @@ class LiteratureHarvester:
 
             paper_id = None
             in_library = False
+            library_status = None
 
             if doi_key and doi_key in in_library_map["doi"]:
-                paper_id = in_library_map["doi"][doi_key]
+                info = in_library_map["doi"][doi_key]
+                paper_id = info["id"]
+                library_status = info.get("status")
                 in_library = True
             elif paper.pmid and paper.pmid in in_library_map["pmid"]:
-                paper_id = in_library_map["pmid"][paper.pmid]
+                info = in_library_map["pmid"][paper.pmid]
+                paper_id = info["id"]
+                library_status = info.get("status")
                 in_library = True
             elif title_key and title_key in in_library_map["title"]:
-                paper_id = in_library_map["title"][title_key]
+                info = in_library_map["title"][title_key]
+                paper_id = info["id"]
+                library_status = info.get("status")
                 in_library = True
 
             results.append(SearchHit(
@@ -366,6 +386,7 @@ class LiteratureHarvester:
                 domain_score=fresult.domain_score,
                 in_library=in_library,
                 paper_id=paper_id,
+                library_status=library_status,
                 tags=classify_paper_tags(
                     title=paper.title,
                     year=paper.year,
@@ -407,7 +428,6 @@ class LiteratureHarvester:
         author: str | None = None,
         journal: str | None = None,
         preprint_sources: list[str] | None = None,
-        institution: str | None = None,
         language: str | None = None,
         max_total: int | None = None,
     ) -> AsyncGenerator[str, None]:
@@ -444,7 +464,6 @@ class LiteratureHarvester:
                     author=author,
                     journal=journal,
                     preprint_sources=preprint_sources,
-                    institution=institution,
                     language=language,
                 )
                 return (source, papers, None)
@@ -469,13 +488,22 @@ class LiteratureHarvester:
         all_papers = self._deduplicate(all_papers)
         deduplicated_count = len(all_papers)
 
-        # 3. 查询驱动批量评分（纯作者/机构搜索时用作者/机构名作为评分回退）
-        scorer_query = query.strip() if query and query.strip() else (author or institution or "")
+        # 2b. 本地作者精确过滤（API 层粗筛后做本地精确比对）
+        if author and author.strip():
+            all_papers = self._filter_by_author(all_papers, author)
+
+        # 3. 查询驱动批量评分（纯作者搜索时用作者名作为评分回退）
+        scorer_query = query.strip() if query and query.strip() else (author or "")
         scorer = QueryDrivenScorer()
-        scorer.prepare(query=scorer_query)
+        scorer.prepare(query=scorer_query, author=author)
 
         paper_dicts = [
-            {"title": p.title, "abstract": p.abstract}
+            {
+                "title": p.title,
+                "abstract": p.abstract,
+                "authors": p.authors,
+                "author_affiliations": p.author_affiliations,
+            }
             for p in all_papers
         ]
         filter_results = scorer.score_papers_batch(paper_dicts)
@@ -504,15 +532,22 @@ class LiteratureHarvester:
 
             paper_id = None
             in_library = False
+            library_status = None
 
             if doi_key and doi_key in in_library_map["doi"]:
-                paper_id = in_library_map["doi"][doi_key]
+                info = in_library_map["doi"][doi_key]
+                paper_id = info["id"]
+                library_status = info.get("status")
                 in_library = True
             elif paper.pmid and paper.pmid in in_library_map["pmid"]:
-                paper_id = in_library_map["pmid"][paper.pmid]
+                info = in_library_map["pmid"][paper.pmid]
+                paper_id = info["id"]
+                library_status = info.get("status")
                 in_library = True
             elif title_key and title_key in in_library_map["title"]:
-                paper_id = in_library_map["title"][title_key]
+                info = in_library_map["title"][title_key]
+                paper_id = info["id"]
+                library_status = info.get("status")
                 in_library = True
 
             results.append(SearchHit(
@@ -534,6 +569,7 @@ class LiteratureHarvester:
                 domain_score=fresult.domain_score,
                 in_library=in_library,
                 paper_id=paper_id,
+                library_status=library_status,
                 tags=classify_paper_tags(
                     title=paper.title,
                     year=paper.year,
@@ -575,6 +611,8 @@ class LiteratureHarvester:
                     "domain_score": h.domain_score,
                     "in_library": h.in_library,
                     "paper_id": h.paper_id,
+                    "library_status": h.library_status,
+                    "tags": h.tags,
                 }
                 for h in results
             ],
@@ -596,11 +634,12 @@ class LiteratureHarvester:
     async def _batch_check_in_library(
         self,
         scored_papers: list[tuple[PaperMetadata, Any]],
-    ) -> dict[str, dict[str, int]]:
+    ) -> dict[str, dict[str, dict[str, Any]]]:
         """
         批量检查文献是否已在库中。
 
         返回三个映射：doi_map, pmid_map, title_map。
+        每个映射的值是 {id, status} 字典。
         """
         doi_set: set[str] = set()
         pmid_set: set[str] = set()
@@ -616,9 +655,9 @@ class LiteratureHarvester:
             if ntitle:
                 title_set.add(ntitle)
 
-        doi_map: dict[str, int] = {}
-        pmid_map: dict[str, int] = {}
-        title_map: dict[str, int] = {}
+        doi_map: dict[str, dict[str, Any]] = {}
+        pmid_map: dict[str, dict[str, Any]] = {}
+        title_map: dict[str, dict[str, Any]] = {}
 
         if not (doi_set or pmid_set or title_set):
             return {"doi": doi_map, "pmid": pmid_map, "title": title_map}
@@ -626,21 +665,27 @@ class LiteratureHarvester:
         async with async_session_factory() as session:
             if doi_set:
                 result = await session.execute(
-                    select(Paper.id, Paper.doi).where(Paper.doi.in_(doi_set))
+                    select(Paper.id, Paper.doi, Paper.status).where(Paper.doi.in_(doi_set))
                 )
                 for row in result.fetchall():
-                    doi_map[row._mapping["doi"]] = row._mapping["id"]
+                    doi_map[row._mapping["doi"]] = {
+                        "id": row._mapping["id"],
+                        "status": row._mapping["status"],
+                    }
 
             if pmid_set:
                 result = await session.execute(
-                    select(Paper.id, Paper.pmid).where(Paper.pmid.in_(pmid_set))
+                    select(Paper.id, Paper.pmid, Paper.status).where(Paper.pmid.in_(pmid_set))
                 )
                 for row in result.fetchall():
-                    pmid_map[row._mapping["pmid"]] = row._mapping["id"]
+                    pmid_map[row._mapping["pmid"]] = {
+                        "id": row._mapping["id"],
+                        "status": row._mapping["status"],
+                    }
 
             if title_set:
                 result = await session.execute(
-                    select(Paper.id, Paper.title).where(
+                    select(Paper.id, Paper.title, Paper.status).where(
                         sa_func.lower(Paper.title).in_(
                             {t for t in title_set}
                         )
@@ -649,7 +694,10 @@ class LiteratureHarvester:
                 for row in result.fetchall():
                     ntitle = _normalize_title(row._mapping["title"])
                     if ntitle and ntitle not in title_map:
-                        title_map[ntitle] = row._mapping["id"]
+                        title_map[ntitle] = {
+                            "id": row._mapping["id"],
+                            "status": row._mapping["status"],
+                        }
 
         return {"doi": doi_map, "pmid": pmid_map, "title": title_map}
 
@@ -688,13 +736,18 @@ class LiteratureHarvester:
         author: str | None = None,
         journal: str | None = None,
         preprint_sources: list[str] | None = None,
-        institution: str | None = None,
         language: str | None = None,
     ) -> list[PaperMetadata]:
         """从单个数据源搜索文献。"""
         search_fn = self._get_search_fn(source)
 
-        kwargs: dict[str, Any] = {"query": query, "max_results": max_results}
+        # ---- 纯作者搜索时，用作者名变体作为关键词回退查询 ----
+        effective_query = query
+        if (not query or not query.strip()) and author and author.strip():
+            from app.agent.name_utils import build_author_keyword_query
+            effective_query = build_author_keyword_query(author)
+
+        kwargs: dict[str, Any] = {"query": effective_query, "max_results": max_results}
         if source == "europe_pmc":
             kwargs["enhance_query"] = enhance_query
             kwargs["enhance_terms"] = enhance_terms
@@ -704,9 +757,6 @@ class LiteratureHarvester:
             kwargs["journal"] = journal
         if preprint_sources and source == "openalex":
             kwargs["preprint_sources"] = preprint_sources
-        # institution 仅 openalex / pubmed 支持，openalex 通过追加到 query 实现（无专用 filter）
-        if institution and source in ("openalex", "pubmed"):
-            kwargs["institution"] = institution
         # language 仅 europe_pmc / pubmed / openalex 支持
         if language and source in ("europe_pmc", "pubmed", "openalex"):
             kwargs["language"] = language
@@ -758,6 +808,25 @@ class LiteratureHarvester:
             unique.append(paper)
 
         return unique
+
+    def _filter_by_author(
+        self,
+        papers: list[PaperMetadata],
+        author: str,
+    ) -> list[PaperMetadata]:
+        """
+        本地作者名过滤：只保留作者列表中包含目标作者的论文。
+
+        与 API 层 author 过滤互补——API 层做粗筛，本地做精确比对。
+        支持中文名自动转拼音后匹配，以及首字母缩写匹配。
+        """
+        from app.agent.name_utils import match_author
+
+        filtered: list[PaperMetadata] = []
+        for paper in papers:
+            if match_author(author, paper.authors):
+                filtered.append(paper)
+        return filtered
 
     async def _do_crawl(
         self,
@@ -837,13 +906,18 @@ class LiteratureHarvester:
             all_papers = self._deduplicate(all_papers)
             deduplicated_count = len(all_papers)
 
-            # ---- 3. 查询驱动批量评分（纯作者/机构搜索时用作者名作为评分回退）----
-            scorer_query = query.strip() if query and query.strip() else (author or "")
+            # ---- 3. 查询驱动批量评分 ----
+            scorer_query = query.strip()
             scorer = QueryDrivenScorer()
             scorer.prepare(query=scorer_query)
 
             paper_dicts = [
-                {"title": p.title, "abstract": p.abstract}
+                {
+                    "title": p.title,
+                    "abstract": p.abstract,
+                    "authors": p.authors,
+                    "author_affiliations": p.author_affiliations,
+                }
                 for p in all_papers
             ]
             filter_results = scorer.score_papers_batch(paper_dicts)

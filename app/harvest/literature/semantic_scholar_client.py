@@ -27,6 +27,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Optional
 
+from app.harvest.literature._http_utils import decode_response_body
 from app.harvest.literature.europe_pmc_client import PaperMetadata
 
 
@@ -195,6 +196,9 @@ class SemanticScholarClient:
 
         last_error: Optional[Exception] = None
         attempt = 0
+        rate_limit_retries = 0
+        total_rate_limit_wait = 0.0
+        MAX_RATE_LIMIT_WAIT = 45.0  # 最多等 45 秒后放弃
 
         while attempt < self.max_retries:
             attempt += 1
@@ -213,10 +217,19 @@ class SemanticScholarClient:
                     status_code = response.status
 
                     if status_code == 429:
-                        # 速率限制，等待更长时间，不消耗重试次数
-                        wait = self.retry_sleep * (attempt + 3)
+                        rate_limit_retries += 1
+                        # 指数退避: 2s → 4s → 8s → 16s ...
+                        wait = self.retry_sleep * (2 ** min(rate_limit_retries, 5))
+                        total_rate_limit_wait += wait
+                        if total_rate_limit_wait > MAX_RATE_LIMIT_WAIT:
+                            raise RuntimeError(
+                                f"Semantic Scholar 速率限制（429），"
+                                f"已等待 {total_rate_limit_wait:.0f}s 超过上限。"
+                                f"建议：在 .env 中添加 SEMANTIC_SCHOLAR_API_KEY 提升限额，"
+                                f"或稍后重试。"
+                            )
                         time.sleep(wait)
-                        attempt -= 1
+                        attempt -= 1  # 不消耗正常重试次数
                         continue
 
                     if status_code != 200:
@@ -224,13 +237,23 @@ class SemanticScholarClient:
                             f"Semantic Scholar 请求失败，HTTP 状态码：{status_code}"
                         )
 
-                    body = response.read().decode("utf-8")
+                    raw = response.read()
+                    content_type = response.headers.get("Content-Type", "")
+                    body = decode_response_body(raw, content_type)
                     return json.loads(body)
 
             except urllib.error.HTTPError as exc:
                 if exc.code == 429:
-                    # HTTPError 方式的 429
-                    wait = self.retry_sleep * (attempt + 3)
+                    rate_limit_retries += 1
+                    wait = self.retry_sleep * (2 ** min(rate_limit_retries, 5))
+                    total_rate_limit_wait += wait
+                    if total_rate_limit_wait > MAX_RATE_LIMIT_WAIT:
+                        raise RuntimeError(
+                            f"Semantic Scholar 速率限制（429），"
+                            f"已等待 {total_rate_limit_wait:.0f}s 超过上限。"
+                            f"建议：在 .env 中添加 SEMANTIC_SCHOLAR_API_KEY 提升限额，"
+                            f"或稍后重试。"
+                        )
                     time.sleep(wait)
                     attempt -= 1
                     continue
@@ -245,6 +268,7 @@ class SemanticScholarClient:
                 TimeoutError,
                 json.JSONDecodeError,
                 RuntimeError,
+                UnicodeDecodeError,
             ) as exc:
                 last_error = exc
 

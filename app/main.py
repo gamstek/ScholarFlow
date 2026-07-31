@@ -623,46 +623,6 @@ async def stats() -> dict[str, Any]:
     }
 
 
-@app.get("/institutions")
-async def list_institutions(
-    limit: int = Query(20, ge=1, le=50),
-) -> dict[str, Any]:
-    """
-    返回本地文献库中机构排名（按出现频率降序）。
-
-    从 papers.authors_json 提取所有 institution 字段，聚合计数。
-    """
-    from app.harvest.literature.author_utils import parse_authors_json
-    from app.storage.models import Paper as PaperModel
-    from sqlalchemy import select as sa_select
-
-    async with async_session_factory() as session:
-        result = await session.execute(
-            sa_select(PaperModel.authors_json).where(PaperModel.authors_json.isnot(None))
-        )
-        rows = result.fetchall()
-
-    counter: dict[str, int] = {}
-    for row in rows:
-        authors = parse_authors_json(row[0])
-        for a in authors:
-            inst = a.get("institution")
-            if inst:
-                # 处理多机构情况（分号分隔）
-                for part in inst.split(";"):
-                    part = part.strip()
-                    if part:
-                        counter[part] = counter.get(part, 0) + 1
-
-    sorted_insts = sorted(counter.items(), key=lambda x: x[1], reverse=True)
-    top = [{"name": k, "count": v} for k, v in sorted_insts[:limit]]
-
-    return {
-        "institutions": top,
-        "total_unique": len(counter),
-    }
-
-
 @app.get("/papers")
 async def list_papers(
     limit: int = Query(20, ge=1, le=200),
@@ -685,7 +645,7 @@ async def list_papers(
     return {
         "limit": limit,
         "offset": offset,
-        "count": len(papers),
+        "total": len(papers),
         "papers": papers,
     }
 
@@ -944,10 +904,6 @@ class SearchRequest(BaseModel):
         None,
         description="OpenAlex 预印本源 ID 列表。如 ['S4306402567','S3005729997']。仅 openalex 源生效。",
     )
-    institution: Optional[str] = Field(
-        None,
-        description="按机构名筛选。例如 'MIT' 或 'CSAIL'。仅 OpenAlex / PubMed 生效。",
-    )
     language: Optional[str] = Field(
         None,
         description="文献语言：zh=中文 / en=外文 / null=不限。仅 europe_pmc/pubmed/openalex 生效。",
@@ -1027,10 +983,10 @@ async def search(request: SearchRequest) -> dict[str, Any]:
             # 用提取的关键词拼接为检索 query
             query = " ".join(keywords) if keywords else request.natural_query.strip()
 
-        if not query and not (request.author and request.author.strip()) and not (request.institution and request.institution.strip()):
+        if not query and not (request.author and request.author.strip()):
             raise HTTPException(
                 status_code=400,
-                detail="必须提供 query、natural_query、author 或 institution。",
+                detail="必须提供 query、natural_query 或 author。",
             )
 
         result = await search_papers_service(
@@ -1045,7 +1001,6 @@ async def search(request: SearchRequest) -> dict[str, Any]:
             author=request.author,
             journal=request.journal,
             preprint_sources=request.preprint_sources,
-            institution=request.institution,
             language=request.language,
             max_total=request.max_total,
         )
@@ -1082,10 +1037,10 @@ async def search_stream(request: SearchRequest):
             domain = extraction.domain
             query = " ".join(keywords) if keywords else request.natural_query.strip()
 
-        if not query and not (request.author and request.author.strip()) and not (request.institution and request.institution.strip()):
+        if not query and not (request.author and request.author.strip()):
             raise HTTPException(
                 status_code=400,
-                detail="必须提供 query、natural_query、author 或 institution。",
+                detail="必须提供 query、natural_query 或 author。",
             )
 
         from app.services.pipeline_service import search_papers_stream_service
@@ -1103,7 +1058,6 @@ async def search_stream(request: SearchRequest):
                 author=request.author,
                 journal=request.journal,
                 preprint_sources=request.preprint_sources,
-                institution=request.institution,
                 language=request.language,
                 max_total=request.max_total,
             ):
@@ -1192,6 +1146,7 @@ class PaperImportRequest(BaseModel):
     title: str = Field(..., description="论文标题。")
     abstract: Optional[str] = Field(None, description="论文摘要。")
     authors: Optional[list[str]] = Field(None, description="作者列表。")
+    author_affiliations: Optional[list[dict]] = Field(None, description="作者信息。[{\"name\":\"...\"}]")
     year: Optional[int] = Field(None, description="发表年份。")
     journal: Optional[str] = Field(None, description="期刊。")
     doi: Optional[str] = Field(None, description="DOI。")
@@ -1218,6 +1173,7 @@ async def import_paper(request: PaperImportRequest) -> dict[str, Any]:
             title=request.title,
             abstract=request.abstract,
             authors=request.authors,
+            author_affiliations=request.author_affiliations,
             year=request.year,
             journal=request.journal,
             doi=request.doi,
@@ -1236,6 +1192,108 @@ async def import_paper(request: PaperImportRequest) -> dict[str, Any]:
             status_code=500,
             detail=str(exc),
         ) from exc
+
+
+class BatchImportRequest(BaseModel):
+    """批量论文入库请求。"""
+    papers: list[PaperImportRequest] = Field(..., description="待入库论文列表。")
+
+
+@app.post("/papers/import-batch")
+async def import_papers_batch(request: BatchImportRequest) -> dict[str, Any]:
+    """
+    批量论文入库（metadata）。
+
+    逐篇入库，部分失败不影响其他论文。
+    """
+    results: list[dict[str, Any]] = []
+    success_count = 0
+    failed_count = 0
+
+    for paper_req in request.papers:
+        try:
+            result = await import_single_paper_service(
+                title=paper_req.title,
+                abstract=paper_req.abstract,
+                authors=paper_req.authors,
+                author_affiliations=paper_req.author_affiliations,
+                year=paper_req.year,
+                journal=paper_req.journal,
+                doi=paper_req.doi,
+                pmid=paper_req.pmid,
+                pmcid=paper_req.pmcid,
+                source=paper_req.source,
+                url=paper_req.url,
+                pdf_url=paper_req.pdf_url,
+                license=paper_req.license,
+                is_open_access=paper_req.is_open_access,
+                domain_score=paper_req.domain_score,
+            )
+            results.append({"success": True, **result})
+            success_count += 1
+        except Exception as exc:
+            results.append({
+                "success": False,
+                "title": paper_req.title,
+                "error": str(exc),
+            })
+            failed_count += 1
+
+    return {
+        "total": len(request.papers),
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "results": results,
+    }
+
+
+class BatchProcessRequest(BaseModel):
+    """批量处理请求。"""
+    paper_ids: list[int] = Field(..., description="待处理的论文 ID 列表。")
+
+
+@app.post("/papers/process-batch")
+async def process_papers_batch(
+    request: BatchProcessRequest,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
+    """
+    批量触发后台流水线。
+
+    逐篇触发，部分失败不影响其他论文。
+    """
+    paper_repo = PaperRepository()
+    results: list[dict[str, Any]] = []
+    triggered = 0
+    not_found = 0
+
+    for paper_id in request.paper_ids:
+        paper = await paper_repo.get_paper(paper_id)
+        if paper is None:
+            results.append({
+                "paper_id": paper_id,
+                "success": False,
+                "error": f"paper_id={paper_id} 不存在。",
+            })
+            not_found += 1
+            continue
+
+        background_tasks.add_task(_run_pipeline_for_paper, paper_id)
+        results.append({
+            "paper_id": paper_id,
+            "title": paper["title"],
+            "status": paper.get("status", "metadata_only"),
+            "success": True,
+            "message": "后台流水线已触发。",
+        })
+        triggered += 1
+
+    return {
+        "total": len(request.paper_ids),
+        "triggered": triggered,
+        "not_found": not_found,
+        "results": results,
+    }
 
 
 @app.post("/papers/{paper_id}/process")
@@ -1459,66 +1517,60 @@ async def _run_pipeline_for_paper(paper_id: int) -> None:
         await repo.update_pipeline_progress(paper_id, step=step, error=err_msg)
 
     try:
-        # Step 1: 下载 PDF
+        paper = await repo.get_paper(paper_id)
+        if paper is None:
+            return
+
+        # Step 1: 下载 PDF（直接检查 paper 是否有可下载的 PDF URL）
         await set_step("downloading_pdf")
         from app.harvest.literature.pdf_resolver import OpenAccessPdfResolver
 
-        resolver = OpenAccessPdfResolver()
-        candidates = await resolver.list_candidate_papers(
-            limit=100,
-            include_already_downloaded=False,
-        )
-        target = next((c for c in candidates if c.get("id") == paper_id), None)
-
+        pdf_path = paper.get("local_pdf_path")
+        has_pdf = pdf_path and (PROJECT_ROOT / pdf_path).exists()
         download_failed = False
-        if target:
-            result = await resolver.download_for_paper(target, overwrite=False)
+
+        if not has_pdf and paper.get("pdf_url"):
+            resolver = OpenAccessPdfResolver()
+            result = await resolver.download_for_paper(paper, overwrite=False)
             if result.success:
                 logger.info("[paper %d] PDF 下载成功", paper_id)
+                paper = await repo.get_paper(paper_id)  # 刷新
             else:
                 await set_error("downloading_pdf", f"PDF 下载失败: {result.message}")
                 download_failed = True
-        else:
-            logger.info("[paper %d] 无需下载 PDF（已下载或无候选）", paper_id)
+        elif not has_pdf:
+            logger.info("[paper %d] 无需下载 PDF", paper_id)
 
         # 检查是否有 PDF 文件可用
         paper = await repo.get_paper(paper_id)
         pdf_path = paper.get("local_pdf_path") if paper else None
         if not pdf_path or not (PROJECT_ROOT / pdf_path).exists():
             if download_failed:
-                # 下载失败且无 PDF 文件，中止流水线
                 await repo.update_pipeline_progress(
                     paper_id,
                     step="failed",
-                    error=f"PDF 下载失败，无法继续后续步骤。可手动上传 PDF 文件。",
+                    error="PDF 下载失败，无法继续后续步骤。可手动上传 PDF 文件。",
                 )
                 return
-            else:
-                # 无 PDF 来源（非开放获取），标记为仅元数据
-                await repo.update_pipeline_progress(
-                    paper_id,
-                    step="done",
-                    error=None,
-                )
-                return
+            # 无 PDF 来源（非开放获取），标记完成
+            await repo.update_pipeline_progress(
+                paper_id,
+                step="done",
+                error=None,
+            )
+            return
 
-        # Step 2: 解析 PDF
+        # Step 2: 解析 PDF（直接检查 paper 状态）
         await set_step("parsing_pdf")
-        from app.services.pipeline_service import (
-            list_pdf_parse_candidates,
-            parse_single_pdf_service,
-        )
+        from app.services.pipeline_service import parse_single_pdf_service
         from app.document.pdf_parser import PdfParser
 
-        parser = PdfParser()
-        parse_candidates = await list_pdf_parse_candidates(limit=200, include_parsed=False)
-
-        parse_target = next((c for c in parse_candidates if c["id"] == paper_id), None)
-
-        if parse_target:
+        paper = await repo.get_paper(paper_id)
+        if paper and paper.get("local_pdf_path") and not paper.get("local_text_path"):
+            parser = PdfParser()
             try:
                 parse_result = await parse_single_pdf_service(
-                    paper=parse_target,
+                    paper=paper,
                     parser=parser,
                     overwrite=False,
                 )
@@ -1531,23 +1583,17 @@ async def _run_pipeline_for_paper(paper_id: int) -> None:
         else:
             logger.info("[paper %d] 无需解析（已解析或无 PDF）", paper_id)
 
-        # Step 3: 切块
+        # Step 3: 切块（直接检查 paper 状态）
         await set_step("building_chunks")
-        from app.services.pipeline_service import (
-            list_chunk_candidates,
-            build_chunks_for_single_paper_service,
-        )
+        from app.services.pipeline_service import build_chunks_for_single_paper_service
         from app.document.chunker import SectionBasedChunker
 
-        chunker = SectionBasedChunker()
-        chunk_candidates = await list_chunk_candidates(limit=200, include_chunked=False)
-
-        chunk_target = next((c for c in chunk_candidates if c["id"] == paper_id), None)
-
-        if chunk_target:
+        paper = await repo.get_paper(paper_id)
+        if paper and paper.get("local_text_path") and paper.get("status") in ("parsed", "pdf_downloaded"):
+            chunker = SectionBasedChunker()
             try:
                 chunk_result = await build_chunks_for_single_paper_service(
-                    paper=chunk_target,
+                    paper=paper,
                     chunker=chunker,
                     overwrite=False,
                 )
@@ -1567,6 +1613,10 @@ async def _run_pipeline_for_paper(paper_id: int) -> None:
 
         try:
             index_result = await build_faiss_index_service(limit=200)
+            logger.info("[paper %d] FAISS 索引完成: %s",
+                         paper_id, index_result.get("message", ""))
+        except Exception as exc:
+            await set_error("building_index", str(exc))
             logger.info("[paper %d] FAISS 索引完成: %s",
                          paper_id, index_result.get("message", ""))
         except Exception as exc:

@@ -19,6 +19,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Optional
 
+from app.harvest.literature._http_utils import decode_response_body
+
 
 @dataclass
 class GenerationResult:
@@ -211,7 +213,9 @@ class OllamaGenerator:
                 request,
                 timeout=self.timeout,
             ) as response:
-                body = response.read().decode("utf-8")
+                raw = response.read()
+                content_type = response.headers.get("Content-Type", "")
+                body = decode_response_body(raw, content_type)
                 return json.loads(body)
 
         except urllib.error.URLError as exc:

@@ -25,6 +25,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Optional
 
+from app.harvest.literature._http_utils import decode_response_body
 from app.harvest.literature.europe_pmc_client import PaperMetadata
 
 
@@ -62,7 +63,6 @@ class OpenAlexClient:
         year_from: int | None = None,
         year_to: int | None = None,
         preprint_sources: list[str] | None = None,
-        institution: str | None = None,
         language: str | None = None,
     ) -> list[PaperMetadata]:
         """
@@ -77,7 +77,6 @@ class OpenAlexClient:
             year_to: 发表年份上限。
             preprint_sources: 预印本源 ID 列表，如 ["S4306402567", "S3005729997"]。
                 按 primary_location.source.id 过滤。
-            institution: 按机构名过滤（raw_affiliation_string.search）。
 
         返回：
             PaperMetadata 列表。
@@ -86,10 +85,6 @@ class OpenAlexClient:
             if not author or not author.strip():
                 raise ValueError("query 不能为空（除非提供 author）。")
             query = ""
-
-        # OpenAlex 无专用 institution filter，将机构名追加到搜索词中
-        if institution and institution.strip():
-            query = f'{query} {institution.strip()}' if query.strip() else institution.strip()
 
         if max_results <= 0:
             return []
@@ -159,18 +154,12 @@ class OpenAlexClient:
         # 作者 + 机构
         authorship = item.get("authorships", [])
         authors: list[str] = []
-        author_affiliations: list[dict] = []
         for a in authorship:
             author_info = a.get("author", {}) or {}
             name = author_info.get("display_name", "")
             if name:
                 authors.append(name)
-                institutions = a.get("institutions", []) or []
-                inst_names = [i.get("display_name", "") for i in institutions if i.get("display_name")]
-                inst_str = "; ".join(inst_names) if inst_names else None
-                author_affiliations.append({"name": name, "institution": inst_str})
         authors = authors if authors else None
-        author_affiliations = author_affiliations if author_affiliations else None
 
         # 年份
         year = item.get("publication_year")
@@ -219,7 +208,7 @@ class OpenAlexClient:
             title=title,
             abstract=abstract,
             authors=authors,
-            author_affiliations=author_affiliations,
+            author_affiliations=None,
             year=year,
             journal=journal,
             doi=doi or None,
@@ -249,8 +238,10 @@ class OpenAlexClient:
             try:
                 request = urllib.request.Request(url=url, headers=headers, method="GET")
                 with urllib.request.urlopen(request, timeout=self.timeout) as resp:
-                    return json.loads(resp.read().decode("utf-8"))
-            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
+                    raw = resp.read()
+                    content_type = resp.headers.get("Content-Type", "")
+                    return json.loads(decode_response_body(raw, content_type))
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, UnicodeDecodeError) as exc:
                 last_error = exc
                 if attempt < self.max_retries:
                     time.sleep(self.retry_sleep * attempt)

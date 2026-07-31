@@ -145,6 +145,16 @@ export function PaperDetailPage({ paperId, onBack }: PaperDetailPageProps) {
         {paper.doi && <span className="text-gray-400 font-mono">{paper.doi}</span>}
       </div>
 
+      {/* 摘要 */}
+      {paper.abstract && (
+        <div className="rounded-lg bg-gray-50 border border-gray-200 p-4 mb-4">
+          <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">摘要</h3>
+          <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
+            {paper.abstract}
+          </p>
+        </div>
+      )}
+
       {/* 本地存储路径 */}
       {(paper.local_pdf_path || paper.local_text_path) && (
         <div className="rounded-lg bg-gray-50 border border-gray-200 p-3 mb-4">

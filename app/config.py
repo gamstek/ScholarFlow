@@ -97,6 +97,12 @@ class AppConfig:
         ).rstrip("/")
         self.cloud_model: str = os.getenv("CLOUD_MODEL", "deepseek-chat")
 
+        # ========== 外部 API Keys ==========
+        self.semantic_scholar_api_key: str = os.getenv(
+            "SEMANTIC_SCHOLAR_API_KEY", ""
+        )
+        self.pubmed_api_key: str = os.getenv("PUBMED_API_KEY", "")
+
         # ========== Embedding ==========
         self.bge_model_path: str = os.getenv("BGE_MODEL_PATH", "embedding/bge-m3")
         self.hf_hub_offline: bool = (

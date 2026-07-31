@@ -21,12 +21,15 @@ Europe PMC 文献采集客户端。
 from __future__ import annotations
 
 import json
+import ssl
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Optional
+
+from app.harvest.literature._http_utils import decode_response_body
 
 
 @dataclass
@@ -112,6 +115,10 @@ class EuropePmcClient:
         self.max_retries = max_retries
         self.retry_sleep = retry_sleep
         self.user_agent = user_agent
+        # 创建不验证证书的 SSL 上下文（解决 Windows 证书链问题）
+        self._ssl_context = ssl.create_default_context()
+        self._ssl_context.check_hostname = False
+        self._ssl_context.verify_mode = ssl.CERT_NONE
 
     def search(
         self,
@@ -262,6 +269,7 @@ class EuropePmcClient:
                 with urllib.request.urlopen(
                     request,
                     timeout=self.timeout,
+                    context=self._ssl_context,
                 ) as response:
                     status_code = response.status
 
@@ -270,7 +278,9 @@ class EuropePmcClient:
                             f"Europe PMC 请求失败，HTTP 状态码：{status_code}"
                         )
 
-                    body = response.read().decode("utf-8")
+                    raw = response.read()
+                    content_type = response.headers.get("Content-Type", "")
+                    body = decode_response_body(raw, content_type)
                     return json.loads(body)
 
             except (
@@ -279,6 +289,7 @@ class EuropePmcClient:
                 TimeoutError,
                 json.JSONDecodeError,
                 RuntimeError,
+                UnicodeDecodeError,
             ) as exc:
                 last_error = exc
 

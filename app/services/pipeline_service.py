@@ -15,6 +15,7 @@ pipeline_service.py
 
 from __future__ import annotations
 
+import html
 import json
 from dataclasses import asdict
 from pathlib import Path
@@ -91,7 +92,6 @@ async def search_papers_service(
     author: str | None = None,
     journal: str | None = None,
     preprint_sources: list[str] | None = None,
-    institution: str | None = None,
     language: str | None = None,
     max_total: int | None = None,
 ) -> dict[str, Any]:
@@ -127,7 +127,6 @@ async def search_papers_service(
         author=author,
         journal=journal,
         preprint_sources=preprint_sources,
-        institution=institution,
         language=language,
         max_total=max_total,
     )
@@ -151,7 +150,6 @@ async def search_papers_stream_service(
     author: str | None = None,
     journal: str | None = None,
     preprint_sources: list[str] | None = None,
-    institution: str | None = None,
     language: str | None = None,
     max_total: int | None = None,
 ) -> AsyncGenerator[str, None]:
@@ -175,7 +173,6 @@ async def search_papers_stream_service(
         author=author,
         journal=journal,
         preprint_sources=preprint_sources,
-        institution=institution,
         language=language,
         max_total=max_total,
     ):
@@ -190,6 +187,7 @@ async def import_single_paper_service(
     title: str,
     abstract: str | None = None,
     authors: list[str] | None = None,
+    author_affiliations: list[dict] | None = None,
     year: int | None = None,
     journal: str | None = None,
     doi: str | None = None,
@@ -215,6 +213,7 @@ async def import_single_paper_service(
         title=title,
         abstract=abstract,
         authors=authors,
+        author_affiliations=author_affiliations,
         year=year,
         journal=journal,
         doi=doi,
@@ -394,6 +393,16 @@ async def parse_single_pdf_service(
 
     parsed_document = parser.parse(pdf_path)
     parsed_dict = parser.to_dict(parsed_document)
+
+    # 从 PDF metadata 中提取标题，并同步到 papers 表
+    pdf_meta_title = (parsed_dict.get("metadata") or {}).get("title")
+    if pdf_meta_title and isinstance(pdf_meta_title, str):
+        pdf_meta_title = html.unescape(pdf_meta_title).strip()
+        # 只保留合理的标题（去除非打印字符、控制字符）
+        pdf_meta_title = "".join(ch for ch in pdf_meta_title if ch.isprintable() or ch in "\n\r\t")
+        if pdf_meta_title and pdf_meta_title != title:
+            await paper_repo.update_title(paper_id, pdf_meta_title)
+            title = pdf_meta_title  # 后续 JSON 输出也用 PDF 标题
 
     sections = parse_sections_from_pages(
         pages=parsed_dict["pages"],

@@ -1,18 +1,21 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   Search, Loader2, AlertCircle, Layers,
-  BookOpen, Plus, ExternalLink, Sparkles, Tag, X, User, Building2,
+  BookOpen, Plus, ExternalLink, Sparkles, Tag, X, User, CheckSquare, Square, Download,
 } from 'lucide-react';
 import { api, type SearchResult, type SearchHit } from '../lib/api';
 import { PageHeader } from '../components/PageHeader';
 
-// 数据源配置（聚合数据库）
+// 数据源配置（聚合数据库 + 细分期刊源）
 const SOURCES = [
-  { value: 'europe_pmc',       label: 'Europe PMC',      desc: '生物医学',   journal: true },
-  { value: 'pubmed',           label: 'PubMed',          desc: 'MEDLINE',     journal: true },
-  { value: 'semantic_scholar', label: 'Semantic Scholar', desc: '通用学术',   journal: false },
-  { value: 'openalex',         label: 'OpenAlex',        desc: '250M+ 作品',  journal: true },
-  { value: 'arxiv',            label: 'arXiv',           desc: '预印本',      journal: false },
+  { value: 'europe_pmc',       label: 'Europe PMC',      desc: '生物医学',        journal: true },
+  { value: 'pubmed',           label: 'PubMed',          desc: 'MEDLINE',          journal: true },
+  { value: 'semantic_scholar', label: 'Semantic Scholar', desc: '通用学术',        journal: false },
+  { value: 'openalex',         label: 'OpenAlex',        desc: '250M+ 作品',       journal: true },
+  { value: 'arxiv',            label: 'arXiv',           desc: '预印本',           journal: false },
+  { value: 'nature',           label: 'Nature',          desc: 'Nature 系列期刊',   journal: false },
+  { value: 'science',          label: 'Science',         desc: 'Science 系列期刊',  journal: false },
+  { value: 'cell',             label: 'Cell',            desc: 'Cell Press 期刊',  journal: false },
 ] as const;
 
 // 哪些源支持期刊筛选
@@ -67,13 +70,12 @@ export function SearchPage({ onSelectPaper }: SearchPageProps) {
   const [error, setError] = useState('');
   const [importingIds, setImportingIds] = useState<Set<string>>(new Set());
   const [importedIds, setImportedIds] = useState<Set<string>>(new Set());
+  const [selectedHitKeys, setSelectedHitKeys] = useState<Set<string>>(new Set());
+  const [batchImporting, setBatchImporting] = useState(false);
   const [sortBy, setSortBy] = useState<string>('relevance');
   const [sortOrder, setSortOrder] = useState<string>('desc');
   const [author, setAuthor] = useState('');
   const [journal, setJournal] = useState('');
-  const [institution, setInstitution] = useState('');
-  const [institutionList, setInstitutionList] = useState<Array<{ name: string; count: number }>>([]);
-  const [showInstitutionDropdown, setShowInstitutionDropdown] = useState(false);
   const [language, setLanguage] = useState<string>('');  // ''=all, 'zh'=中文, 'en'=外文
   const [openalexSources, setOpenalexSources] = useState<string[]>([]);
   const [searchProgress, setSearchProgress] = useState<{
@@ -106,7 +108,6 @@ export function SearchPage({ onSelectPaper }: SearchPageProps) {
         if (state.sortOrder) setSortOrder(state.sortOrder);
         if (state.author) setAuthor(state.author);
         if (state.journal) setJournal(state.journal);
-        if (state.institution) setInstitution(state.institution);
         if (state.language) setLanguage(state.language);
         if (state.result) setResult(state.result);
       }
@@ -131,14 +132,13 @@ export function SearchPage({ onSelectPaper }: SearchPageProps) {
         sortOrder,
         author,
         journal,
-        institution,
         language,
         result,
       }));
     } catch {
       // 存储满则忽略
     }
-  }, [result, mode, query, naturalQuery, sources, maxResults, countMode, maxTotal, sortBy, sortOrder, author, journal, institution, language]);
+  }, [result, mode, query, naturalQuery, sources, maxResults, countMode, maxTotal, sortBy, sortOrder, author, journal, language]);
 
   // 点击卡片 → 显示元数据模态框
   const handleCardClick = useCallback((hit: SearchHit) => {
@@ -203,16 +203,9 @@ export function SearchPage({ onSelectPaper }: SearchPageProps) {
     [sources]
   );
 
-  // 页面加载时获取机构列表
-  useEffect(() => {
-    api.getInstitutions(20).then(data => {
-      setInstitutionList(data.institutions);
-    }).catch(() => {});
-  }, []);
-
   const handleSearch = async () => {
     const hasKeyword = mode === 'natural' ? naturalQuery.trim() : query.trim();
-    if ((!hasKeyword && !author.trim() && !institution.trim()) || sources.length === 0) return;
+    if ((!hasKeyword && !author.trim()) || sources.length === 0) return;
 
     setLoading(true);
     setError('');
@@ -225,8 +218,8 @@ export function SearchPage({ onSelectPaper }: SearchPageProps) {
     try {
       const params =
         mode === 'natural'
-          ? { natural_query: naturalQuery, sources, max_results: countMode === 'per_source' ? maxResults : 50, sort_by: sortBy, sort_order: sortOrder, author: author || undefined, journal: journal || undefined, preprint_sources: openalexSources.length > 0 ? openalexSources : undefined, institution: institution || undefined, language: language || undefined, max_total: countMode === 'total' ? maxTotal : undefined }
-          : { query, sources, max_results: countMode === 'per_source' ? maxResults : 50, sort_by: sortBy, sort_order: sortOrder, author: author || undefined, journal: journal || undefined, preprint_sources: openalexSources.length > 0 ? openalexSources : undefined, institution: institution || undefined, language: language || undefined, max_total: countMode === 'total' ? maxTotal : undefined };
+          ? { natural_query: naturalQuery, sources, max_results: countMode === 'per_source' ? maxResults : 50, author: author || undefined, journal: journal || undefined, preprint_sources: openalexSources.length > 0 ? openalexSources : undefined, language: language || undefined, max_total: countMode === 'total' ? maxTotal : undefined }
+          : { query, sources, max_results: countMode === 'per_source' ? maxResults : 50, author: author || undefined, journal: journal || undefined, preprint_sources: openalexSources.length > 0 ? openalexSources : undefined, language: language || undefined, max_total: countMode === 'total' ? maxTotal : undefined };
 
       const data = await api.searchStream(params, (current, total, source, sourceCount) => {
         setSearchProgress((prev) => ({
@@ -260,6 +253,7 @@ export function SearchPage({ onSelectPaper }: SearchPageProps) {
         title: hit.title,
         abstract: hit.abstract,
         authors: hit.authors,
+        author_affiliations: hit.author_affiliations,
         year: hit.year,
         journal: hit.journal,
         doi: hit.doi,
@@ -273,21 +267,24 @@ export function SearchPage({ onSelectPaper }: SearchPageProps) {
         domain_score: hit.domain_score,
       });
 
-      // 触发后台流水线
-      await api.processPaper(importResult.paper_id);
-
+      // 入库成功后立即更新 UI 状态（不等流水线）
       setImportedIds((prev) => new Set(prev).add(key));
-
-      // 更新结果中的 in_library 状态
       if (result) {
         setResult({
           ...result,
           results: result.results.map((r) =>
             r.title === hit.title
-              ? { ...r, in_library: true, paper_id: importResult.paper_id }
+              ? { ...r, in_library: true, paper_id: importResult.paper_id, library_status: 'metadata_only' }
               : r
           ),
         });
+      }
+
+      // 触发后台流水线（失败时仅警告，不改变入库状态）
+      try {
+        await api.processPaper(importResult.paper_id);
+      } catch {
+        setError('论文已入库，但流水线触发失败。请在文献库中手动点击「处理」。');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -297,6 +294,112 @@ export function SearchPage({ onSelectPaper }: SearchPageProps) {
         next.delete(key);
         return next;
       });
+    }
+  };
+
+  // ---- 多选功能 ----
+  const getHitKey = (hit: SearchHit) => hit.doi || hit.title;
+
+  const toggleSelectHit = (hit: SearchHit) => {
+    const key = getHitKey(hit);
+    setSelectedHitKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (!result) return;
+    const unimportedHits = sortedResults.filter(
+      (h) => !importedIds.has(getHitKey(h)) && !h.in_library
+    );
+    if (unimportedHits.length === 0) return;
+
+    const allSelected = unimportedHits.every((h) => selectedHitKeys.has(getHitKey(h)));
+    if (allSelected) {
+      setSelectedHitKeys(new Set());
+    } else {
+      setSelectedHitKeys(new Set(unimportedHits.map(getHitKey)));
+    }
+  };
+
+  const handleBatchImport = async () => {
+    if (!result || selectedHitKeys.size === 0) return;
+    setBatchImporting(true);
+    setError('');
+
+    const selectedHits = sortedResults.filter(
+      (h) => selectedHitKeys.has(getHitKey(h))
+    );
+    const toImport = selectedHits.filter(
+      (h) => !importedIds.has(getHitKey(h)) && !h.in_library
+    );
+
+    try {
+      const batchResult = await api.importPapersBatch(
+        toImport.map((h) => ({
+          title: h.title,
+          abstract: h.abstract,
+          authors: h.authors,
+          author_affiliations: h.author_affiliations,
+          year: h.year,
+          journal: h.journal,
+          doi: h.doi,
+          pmid: h.pmid,
+          pmcid: h.pmcid,
+          source: h.source,
+          url: h.url,
+          pdf_url: h.pdf_url,
+          license: h.license,
+          is_open_access: h.is_open_access,
+          domain_score: h.domain_score,
+        }))
+      );
+
+      // 更新 UI 状态
+      const newImportedKeys = new Set(importedIds);
+      const updatedResults = [...result.results];
+      for (const r of batchResult.results) {
+        if (r.success && r.title) {
+          const hit = sortedResults.find((h) => h.title === r.title);
+          if (hit) {
+            newImportedKeys.add(getHitKey(hit));
+            const idx = updatedResults.findIndex((u) => u.title === r.title);
+            if (idx >= 0) {
+              updatedResults[idx] = {
+                ...updatedResults[idx],
+                in_library: true,
+                paper_id: r.paper_id ?? null,
+                library_status: 'metadata_only',
+              };
+            }
+          }
+        }
+      }
+      setImportedIds(newImportedKeys);
+      setSelectedHitKeys(new Set());
+      setResult({ ...result, results: updatedResults });
+
+      // 触发批量流水线
+      const successIds = batchResult.results
+        .filter((r) => r.success && r.paper_id != null)
+        .map((r) => r.paper_id!);
+      if (successIds.length > 0) {
+        try {
+          await api.processPapersBatch(successIds);
+        } catch {
+          setError(`${successIds.length} 篇论文已入库，但部分流水线触发失败。请在文献库中手动处理。`);
+        }
+      }
+
+      if (batchResult.failed_count > 0) {
+        setError(`${batchResult.success_count} 篇入库成功，${batchResult.failed_count} 篇失败`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBatchImporting(false);
     }
   };
 
@@ -384,28 +487,6 @@ export function SearchPage({ onSelectPaper }: SearchPageProps) {
         })}
       </div>
 
-      {/* 文献语言 */}
-      <div className="flex gap-2 mb-3 items-center">
-        <span className="text-xs text-gray-400 font-medium mr-1">语言</span>
-        {[
-          { value: '', label: '中外文献' },
-          { value: 'zh', label: '中文文献' },
-          { value: 'en', label: '外文文献' },
-        ].map((opt) => (
-          <button
-            key={opt.value}
-            onClick={() => setLanguage(opt.value)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
-              language === opt.value
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-
       {/* 搜索栏 */}
       <div className="flex gap-2 mb-3">
         <div className="relative flex-1">
@@ -429,52 +510,26 @@ export function SearchPage({ onSelectPaper }: SearchPageProps) {
         </div>
       </div>
 
-      {/* 机构筛选 */}
-      <div className="flex gap-2 mb-3">
-        <div className="relative flex-1">
-          <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            value={institution}
-            onChange={(e) => {
-              setInstitution(e.target.value);
-              setShowInstitutionDropdown(true);
-            }}
-            onFocus={() => setShowInstitutionDropdown(true)}
-            onBlur={() => setTimeout(() => setShowInstitutionDropdown(false), 200)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            placeholder="按机构筛选（可选），如 MIT、Stanford"
-            className="w-full pl-10 pr-8 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-colors"
-          />
-          {institution && (
-            <button
-              onClick={() => setInstitution('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              title="清除机构筛选"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {showInstitutionDropdown && institutionList.length > 0 && (
-            <div className="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-              {institutionList
-                .filter(i => !institution || i.name.toLowerCase().includes(institution.toLowerCase()))
-                .map(i => (
-                  <button
-                    key={i.name}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      setInstitution(i.name);
-                      setShowInstitutionDropdown(false);
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 flex justify-between items-center"
-                  >
-                    <span>{i.name}</span>
-                    <span className="text-xs text-gray-400">{i.count}篇</span>
-                  </button>
-                ))}
-            </div>
-          )}
-        </div>
+      {/* 文献语言 */}
+      <div className="flex gap-2 mb-3 items-center">
+        <span className="text-xs text-gray-400 font-medium mr-1">语言</span>
+        {[
+          { value: '', label: '中外文献' },
+          { value: 'zh', label: '中文文献' },
+          { value: 'en', label: '外文文献' },
+        ].map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => setLanguage(opt.value)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+              language === opt.value
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
       </div>
 
       {/* 期刊筛选（第二层）— 仅在所有选中源都支持期刊筛选时显示 */}
@@ -605,7 +660,7 @@ export function SearchPage({ onSelectPaper }: SearchPageProps) {
         </div>
         <button
           onClick={handleSearch}
-          disabled={loading || (!query.trim() && !naturalQuery.trim() && !author.trim() && !institution.trim()) || sources.length === 0}
+          disabled={loading || (!query.trim() && !naturalQuery.trim() && !author.trim()) || sources.length === 0}
           className="px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium flex items-center gap-2 transition-colors"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
@@ -691,6 +746,43 @@ export function SearchPage({ onSelectPaper }: SearchPageProps) {
         </div>
       )}
 
+      {/* 批量操作栏 */}
+      {result && !loading && sortedResults.filter((h) => !h.in_library && !importedIds.has(getHitKey(h))).length > 0 && (
+        <div className="flex items-center gap-3 mb-4 p-3 rounded-xl border border-indigo-100 bg-indigo-50/50">
+          <button
+            onClick={toggleSelectAll}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors bg-white text-gray-600 border-gray-200 hover:border-indigo-300"
+          >
+            {selectedHitKeys.size > 0 &&
+              (() => {
+                const selectable = sortedResults.filter((h) => !h.in_library && !importedIds.has(getHitKey(h)));
+                return selectable.length > 0 && selectable.every((h) => selectedHitKeys.has(getHitKey(h)));
+              })() ? (
+              <CheckSquare className="w-3.5 h-3.5 text-indigo-500" />
+            ) : (
+              <Square className="w-3.5 h-3.5" />
+            )}
+            全选
+          </button>
+          <span className="text-xs text-gray-400">
+            已选 <span className="font-medium text-indigo-600">{selectedHitKeys.size}</span> 篇
+          </span>
+          <div className="flex-1" />
+          <button
+            onClick={handleBatchImport}
+            disabled={selectedHitKeys.size === 0 || batchImporting}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {batchImporting ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Download className="w-3.5 h-3.5" />
+            )}
+            {batchImporting ? '入库中...' : `一键入库 (${selectedHitKeys.size})`}
+          </button>
+        </div>
+      )}
+
       {/* 结果 */}
       {result && (
         <div className="animate-fade-in">
@@ -755,6 +847,8 @@ export function SearchPage({ onSelectPaper }: SearchPageProps) {
                   rank={i + 1}
                   importing={importingIds.has(hit.doi || hit.title)}
                   imported={importedIds.has(hit.doi || hit.title) || hit.in_library}
+                  selected={selectedHitKeys.has(getHitKey(hit))}
+                  onToggleSelect={() => toggleSelectHit(hit)}
                   onImport={() => handleImport(hit)}
                   onView={() => hit.paper_id && onSelectPaper?.(hit.paper_id)}
                   onClick={() => handleCardClick(hit)}
@@ -828,6 +922,8 @@ function PaperCard({
   rank,
   importing,
   imported,
+  selected,
+  onToggleSelect,
   onImport,
   onView,
   onClick,
@@ -836,6 +932,8 @@ function PaperCard({
   rank: number;
   importing: boolean;
   imported: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
   onImport: () => void;
   onView: () => void;
   onClick: () => void;
@@ -845,6 +943,21 @@ function PaperCard({
       onClick={onClick}
       className="rounded-xl border border-gray-200 bg-white p-4 hover:shadow-sm hover:border-indigo-200 transition-all cursor-pointer">
       <div className="flex items-start gap-3">
+        {/* 多选框 */}
+        {!imported && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
+            className="shrink-0 mt-0.5 text-gray-400 hover:text-indigo-500 transition-colors"
+            title={selected ? '取消选择' : '选择'}
+          >
+            {selected ? (
+              <CheckSquare className="w-4 h-4 text-indigo-500" />
+            ) : (
+              <Square className="w-4 h-4" />
+            )}
+          </button>
+        )}
+
         {/* 排名 */}
         <span className="shrink-0 text-xs font-mono text-gray-400 tabular-nums mt-0.5">
           {rank}.
@@ -879,7 +992,13 @@ function PaperCard({
             ))}
             <span className="flex items-center gap-1">
               <span className={`w-1.5 h-1.5 rounded-full ${hit.in_library ? 'bg-emerald-500' : 'bg-gray-300'}`} />
-              {hit.in_library ? '已在库中' : '未入库'}
+              {hit.in_library
+                ? (hit.library_status === 'indexed' ? '已索引'
+                  : hit.library_status === 'chunked' ? '已切块'
+                  : hit.library_status === 'parsed' ? '已解析'
+                  : hit.library_status === 'pdf_downloaded' ? '已下载PDF'
+                  : '已入库')
+                : '未入库'}
             </span>
           </div>
 

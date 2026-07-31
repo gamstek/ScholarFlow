@@ -38,7 +38,7 @@ Test-Path .env
 
 **分支 A：`ollama`（本地）**
 ```powershell
-curl -s $env:OLLAMA_BASE_URL/api/tags
+try { $r = Invoke-RestMethod -Uri "$env:OLLAMA_BASE_URL/api/tags" -TimeoutSec 5; Write-Host "Ollama: $($r.models.Count) 个模型" } catch { Write-Host "Ollama 未运行或不可达: $_" }
 ```
 - 未运行 → `ollama serve`
 - 缺模型 → `ollama pull $env:OLLAMA_MODEL`
@@ -101,13 +101,7 @@ print('Cached:', cached if cached else 'NOT FOUND')
 ### 5. Python 环境检查
 
 ```powershell
-conda env list | findstr scholarflow
-python -c "
-import torch, transformers
-print(f'torch={torch.__version__} transformers={transformers.__version__}')
-if torch.__version__<'2.6' and transformers.__version__>='5.0':
-    print('CONFLICT: run: pip install transformers==4.48.3')
-"
+python .github/skills/check-dependencies/check_env.py --quiet
 ```
 
 ### 6. 启动
@@ -123,10 +117,7 @@ python -m app.main
 ```
 ⚠ .env 与当前环境不匹配：
 
-  问题 1：DATABASE_URL 端口 5432，但 Docker 容器实际监听 5433
-  → 修改 .env 第 X 行端口号
-
-  问题 2：LLM_BACKEND=deepseek 但 CLOUD_API_KEY 仍为占位值
+  问题 1：LLM_BACKEND=deepseek 但 CLOUD_API_KEY 仍为占位值
   → 修改 .env 第 Y 行，填入真实 API Key
 
 请修改后重新启动。
@@ -137,7 +128,7 @@ python -m app.main
 ## `.env` 最小模板（不存在时创建）
 
 ```bash
-DATABASE_URL=postgresql+asyncpg://postgres:scholarflow@127.0.0.1:5432/scholarflow
+DATABASE_URL=postgresql+asyncpg://postgres:scholarflow@127.0.0.1:5433/scholarflow
 LLM_BACKEND=ollama
 OLLAMA_MODEL=qwen3:8b
 OLLAMA_BASE_URL=http://localhost:11434
@@ -170,7 +161,12 @@ HF_HUB_OFFLINE=1
 # 1. 按模板创建 .env，填写实际配置
 # 2. Python 环境
 conda create -n scholarflow python=3.11 -y && conda activate scholarflow
-pip install -r requirements.txt
+# 根据 GPU 型号选择正确的 requirements 文件（先运行 check_env.py 可自动识别）：
+#   RTX 50 系 → requirements/requirements-rtx50.txt
+#   RTX 40 系 → requirements/requirements-rtx40.txt
+#   RTX 30 系 → requirements/requirements-rtx30.txt
+#   CPU/无 GPU → requirements/requirements.txt
+pip install -r requirements/requirements.txt
 pip install transformers==4.48.3
 # 3. LLM: ollama pull 模型 或填写 CLOUD_API_KEY
 # 4. 下载 BGE-M3（仅首次，临时关 HF_HUB_OFFLINE）

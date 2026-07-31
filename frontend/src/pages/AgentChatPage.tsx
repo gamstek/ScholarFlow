@@ -91,7 +91,8 @@ export function AgentChatPage() {
   const handleNewSession = () => {
     if (loading) return;
     setCurrentSessionId(null);
-    setMessages([]);
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    setMessages([{ role: 'assistant', content: '👋 新对话已就绪。你可以让我帮你检索论文、回答文献相关问题或撰写综述。' }]);
     setError('');
   };
 

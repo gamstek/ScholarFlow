@@ -27,18 +27,18 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# 导入共享环境工具模块
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_lib"))
+from env_utils import PROJECT_ROOT, DEFAULT_CONDA_ENV, run_cmd, detect_conda  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # 常量配置
 # ---------------------------------------------------------------------------
-
-# 项目根目录（脚本位于 .github/skills/check-dependencies/ → 向上 4 级）
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 # requirements 路径（基础依赖，不含 GPU 专用 torch 版本）
 REQUIREMENTS_DIR = PROJECT_ROOT / "requirements"
@@ -60,37 +60,9 @@ GPU_ARCH_RULES = {
     (7, 5): {"min_torch": "2.5.0", "cuda_tag": "cu124", "label": "RTX 20 / GTX 16 系 (Turing)", "req_file": "requirements/requirements-rtx40.txt"},
 }
 
-# 默认 conda 环境名
-DEFAULT_CONDA_ENV = "scholarflow"
-
-
 # ---------------------------------------------------------------------------
 # 工具函数
 # ---------------------------------------------------------------------------
-
-def run_cmd(cmd: List[str], timeout: int = 30) -> Tuple[int, str, str]:
-    """运行命令，返回 (returncode, stdout, stderr).
-
-    强制使用 UTF-8 编码，避免 Windows 下 GBK/管道编码错配导致中文乱码。
-    """
-    try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            shell=(sys.platform == "win32"),
-            encoding="utf-8",
-            errors="replace",
-        )
-        stdout = proc.stdout.strip() if proc.stdout else ""
-        stderr = proc.stderr.strip() if proc.stderr else ""
-        return proc.returncode, stdout, stderr
-    except FileNotFoundError:
-        return -1, "", f"Command not found: {cmd[0] if isinstance(cmd, list) else cmd}"
-    except subprocess.TimeoutExpired:
-        return -2, "", f"Command timed out: {cmd[0] if isinstance(cmd, list) else cmd}"
-
 
 def parse_requirements(path: Path) -> Dict[str, str]:
     """
@@ -184,78 +156,7 @@ def check_version_satisfied(installed: str, spec: str) -> bool:
     return True
 
 
-def detect_conda() -> Dict[str, Any]:
-    """检测 conda 环境信息 — 优先查找 scholarflow 环境是否存在."""
-    result: Dict[str, Any] = {
-        "conda_available": False,
-        "in_conda_env": False,
-        "env_name": None,
-        "env_prefix": None,
-        "is_scholarflow_env": False,
-        "scholarflow_exists": False,   # ★ 核心：scholarflow 环境是否在所有环境中
-        "scholarflow_path": None,
-        "all_envs": [],
-    }
-
-    # 检查 conda 是否可用
-    ret, out, _ = run_cmd(["conda", "--version"])
-    if ret != 0:
-        return result
-    result["conda_available"] = True
-
-    # ── 先获取所有 conda 环境列表，找 scholarflow ──
-    ret3, out3, _ = run_cmd(["conda", "env", "list"])
-    if ret3 == 0:
-        for line in out3.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split()
-            if not parts:
-                continue
-            name = parts[0]
-            if name == "base":
-                continue
-            # 跳过路径行（以 / \ 或盘符开头）
-            if re.match(r"^[A-Za-z]:|^/|^\\", name):
-                continue
-            if name not in result["all_envs"]:
-                result["all_envs"].append(name)
-            if name == DEFAULT_CONDA_ENV:
-                result["scholarflow_exists"] = True
-                # 提取路径
-                for p in parts[1:]:
-                    if p not in ("*", ""):
-                        result["scholarflow_path"] = p
-                        break
-
-    # ── 再获取当前激活的环境 ──
-    env_name = os.environ.get("CONDA_DEFAULT_ENV", None)
-    env_prefix = os.environ.get("CONDA_PREFIX", None)
-
-    if env_name:
-        result["in_conda_env"] = True
-        result["env_name"] = env_name
-        result["env_prefix"] = env_prefix
-        result["is_scholarflow_env"] = (env_name == DEFAULT_CONDA_ENV)
-    else:
-        # 尝试通过 conda info 获取
-        ret2, out2, _ = run_cmd(["conda", "info", "--json"])
-        if ret2 == 0:
-            try:
-                info = json.loads(out2)
-                active_prefix = info.get("active_prefix_name") or info.get("active_prefix")
-                if active_prefix:
-                    result["in_conda_env"] = True
-                    if isinstance(active_prefix, str) and not active_prefix.startswith("/"):
-                        result["env_name"] = active_prefix
-                    else:
-                        result["env_name"] = os.path.basename(str(active_prefix))
-                    result["is_scholarflow_env"] = (result["env_name"] == DEFAULT_CONDA_ENV)
-            except json.JSONDecodeError:
-                pass
-
-    return result
+# detect_conda() 已从 _lib.env_utils 导入
 
 
 def detect_gpu() -> Optional[Dict[str, Any]]:
@@ -405,7 +306,7 @@ def check_postgresql() -> Dict[str, Any]:
                 # 尝试默认连接
                 conn = await asyncpg.connect(
                     user="postgres", password="postgres",
-                    host="127.0.0.1", port=5432,
+                    host="127.0.0.1", port=5433,
                     database="scholarflow", timeout=5
                 )
                 await conn.close()
@@ -575,6 +476,18 @@ def run_all_checks() -> List[CheckResult]:
     required_pkgs = parse_requirements(REQUIREMENTS_PATH)
     installed_pkgs = parse_pip_list()
 
+    def _make_fix(name: str, spec_str: str) -> str:
+        """生成可执行的 pip install 修复命令."""
+        if spec_str == "*" or not spec_str:
+            return f"pip install {name}"
+        if spec_str.startswith("=="):
+            return f"pip install {name}{spec_str}"
+        if any(op in spec_str for op in (">=", "<=", "!=", "~=", ",")):
+            return f"pip install '{name}{spec_str}'"
+        if spec_str[0].isdigit():
+            return f"pip install {name}=={spec_str}"
+        return f"pip install '{name}{spec_str}'"
+
     if not required_pkgs:
         results.append(CheckResult(
             "配置文件", "requirements.txt",
@@ -592,19 +505,6 @@ def run_all_checks() -> List[CheckResult]:
                 continue
 
             installed_ver = installed_pkgs.get(pkg_key, None)
-
-            # 生成 fix 命令
-            def _make_fix(name: str, spec_str: str) -> str:
-                """生成可执行的 pip install 修复命令."""
-                if spec_str == "*" or not spec_str:
-                    return f"pip install {name}"
-                if spec_str.startswith("=="):
-                    return f"pip install {name}{spec_str}"
-                if any(op in spec_str for op in (">=", "<=", "!=", "~=", ",")):
-                    return f"pip install '{name}{spec_str}'"
-                if spec_str[0].isdigit():
-                    return f"pip install {name}=={spec_str}"
-                return f"pip install '{name}{spec_str}'"
 
             if installed_ver is None:
                 results.append(CheckResult(
@@ -871,7 +771,7 @@ def render_markdown(results: List[CheckResult]) -> str:
     if failed_required == 0 and failed_optional == 0:
         lines.append("> ✅ 环境完全就绪，可直接运行：")
         lines.append("> ```bash")
-        lines.append("> uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload")
+        lines.append("> python -m app.main")
         lines.append("> ```")
         lines.append("> 然后访问 http://127.0.0.1:8000 打开 ScholarFlow 工作台。")
     elif failed_required == 0:
