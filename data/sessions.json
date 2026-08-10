@@ -30,5 +30,53 @@
         "content": "好的，我来详细介绍一下我能为你提供的全部功能！😊\n\n## 🎯 ScholarFlow 文献工作站助手功能总览\n\n### 1️⃣ 论文检索\n- **关键词/自然语言搜索**：如\"帮我找关于大语言模型的论文\"\n- **按作者搜索**：如\"查一下 Geoffrey Hinton 的论文\"\n- **多数据源**：覆盖 Europe PMC、Nature、Science、Cell、arXiv、Semantic Scholar 等\n- **网页补充搜索**：查找个人主页、Google Scholar 等 API 覆盖不到的内容\n\n### 2️⃣ 文献库管理\n- **查看已入库文献**：查看你本地保存的论文列表\n- **导入入库**：将检索到的论文保存到你的文献库\n- **阅读全文**：查看库中论文的详细内容\n\n### 3️⃣ 智能问答\n- **论文问答（RAG）**：基于你文献库中的论文内容回答问题，并给出引用来源\n- **文献综述撰写**：根据主题自动生成结构化 Markdown 综述\n\n---\n\n## 📋 你可以这样使用我\n\n| 你想做什么 | 可以这样说 |\n|-----------|-----------|\n| 找论文 | \"帮我找 **图神经网络** 的论文\" |\n| 查作者 | \"查一下 **Yann LeCun** 的论文\" |\n| 看文献库 | \"看看我库里有什么论文\" |\n| 读全文 | \"查看第 X 篇论文的全文\" |\n| 问问题 | \"基于我的文献库，解释一下 **Transformer** 的原理\" |\n| 写综述 | \"写一篇关于 **强化学习** 的综述\" |\n| 入库 | \"把第 X 篇论文入库\" |\n\n---\n\n需要我帮你做点什么吗？直接告诉我你的需求就行！🚀"
       }
     ]
+  },
+  "142e93e7f623": {
+    "title": "你好",
+    "created_at": 1786326473.5884953,
+    "raw_messages": [
+      {
+        "role": "human",
+        "content": "你好"
+      },
+      {
+        "role": "ai",
+        "content": "你好！我是 ScholarFlow 文献工作站助手，很高兴为你服务。😊\n\n我可以帮你完成以下工作：\n\n- 🔍 **检索论文** — 按关键词、主题或作者搜索学术文献\n- 📚 **查看文献库** — 浏览你本地已入库的论文\n- 📖 **阅读全文** — 查看库中论文的详细内容\n- 💬 **论文问答** — 基于文献库内容回答你的问题\n- ✍️ **撰写综述** — 根据主题自动生成文献综述\n- 📥 **导入文献** — 将论文保存到你的本地文库\n\n请告诉我你想做什么，比如：\n- \"帮我找关于 **大语言模型** 的论文\"\n- \"查一下 **Geoffrey Hinton** 的论文\"\n- \"看看我的文献库里有什么\"\n- \"写一篇关于 **Transformer** 的综述\"\n\n有什么可以帮你的吗？"
+      }
+    ]
+  },
+  "f516503a8b9b": {
+    "title": "帮我检索关于蛋白质转录的论文",
+    "created_at": 1786326504.3838353,
+    "raw_messages": [
+      {
+        "role": "human",
+        "content": "帮我检索关于蛋白质转录的论文"
+      },
+      {
+        "role": "ai",
+        "content": "我已从多个数据源检索到关于蛋白质转录的论文。以下是整理后的结果：\n\n## 蛋白质转录相关论文检索结果\n\n### 一、转录因子与基因表达调控（核心相关）\n\n| # | 标题 | 作者 | 年份 | 期刊 | DOI | 状态 |\n|---|------|------|------|------|-----|------|\n| 1 | Protein-Protein Interactions Can Accelerate Transcription Factor Target Search on DNA | Nagarajan A, Choubey S, Kolomeisky AB | 2026 | J. Phys. Chem. Lett. | 10.1021/acs.jpclett.6c01593 | 未入库 |\n| 2 | Transcriptional regulation in halophilic archaea: Promoter elements, key transcription factor families, and gene regulatory networks | Bernabeu E, Martínez-Espinosa RM, Pire C | 2026 | Microbiological Research | 10.1016/j.micres.2026.128570 | 未入库 |\n| 3 | Transcription factor Tono mediates histone H3K4 trimethylation to regulate endoreplication through transcriptional reprogramming | Li H, Song Y, Guo M, et al. | 2026 | Science Advances | 10.1126/sciadv.aed9695 | 未入库 |\n| 4 | The HIF-2 transcription factor mediates resistance to ferroptosis in pancreatic cancer | Hubbi ME, Wang CL, Suhail Y, et al. | 2026 | Molecular Cell | 10.1016/j.molcel.2026.03.007 | 未入库 |\n| 5 | The cotton 1R-MYB transcription factor GhMYS1 promotes fiber cell elongation by inhibiting secondary cell wall synthesis | Yang X, Xia J, Zhang T, et al. | 2026 | Plant Physiology | 10.1093/plphys/kiag399 | 未入库 |\n| 6 | RNA polymerase II transcription initiation with and without XPB translocase activity | Zurita M, Cruz-Ruiz S, Calvario E | 2026 | Communications Biology | 10.1038/s42003-026-10203-1 | 未入库 |\n| 7 | The adaptive landscapes of three global *Escherichia coli* transcriptional regulators | Westmann CA, Goldbach L, Wagner A | 2026 | eLife | 10.7554/elife.103774 | 未入库 |\n| 8 | Transcription Factor Evolution Associated with Social Transitions in Blattodea | Jones ARC, Dohmen E, Berger J, et al. | 2026 | J. Mol. Evol. | 10.1007/s00239-026-10328-1 | 未入库 |\n| 9 | C/EBPα plays a critical role in adipocyte differentiation and obesity | Li X, Li H, Peng F, et al. | 2026 | Front. Mol. Biosci. | 10.3389/fmolb.2026.1846497 | 未入库 |\n| 10 | The transcriptional coactivator ZaGIF2 from *Zanthoxylum armatum* enhances growth and drought tolerance in plants | Lan H, Zhang Q, Lang C, et al. | 2026 | Planta | 10.1007/s00425-026-05100-0 | 未入库 |\n\n### 二、转录机制与基因表达（其他相关）\n\n| # | 标题 | 作者 | 年份 | 期刊 | DOI | 状态 |\n|---|------|------|------|------|-----|------|\n| 11 | Premature transcription termination modulates stochastic gene expression in bacteria | Moradian S, Ali N, Jagadeesan R, et al. | 2026 | Science Advances | 10.1126/sciadv.aed0831 | 未入库 |\n| 12 | Early growth response 1 promotes RNA polymerase I-directed transcription and cancer growth by activating RRN3 expression | Song X, Xia W, Zhang J, et al. | 2026 | Communications Biology | 10.1038/s42003-025-09485-8 | 未入库 |\n| 13 | A minimal transcription factor network is sufficient to drive paclitaxel biosynthesis | Pan Q, Ochoa-Villarreal M, Howat S, et al. | 2026 | Science Advances | 10.1126/sciadv.aee6211 | 未入库 |\n| 14 | Active RNA synthesis patterns nuclear condensates | Goychuk A, Banani SF, Natarajan P, et al. | 2026 | Cell Systems | 10.1016/j.cels.2026.101613 | 未入库 |\n| 15 | Large-scale, interpretable gene regulatory network inference through biologically informed matrix factorization | Micheletti S, Fanfani V, Vogt J, et al. | 2026 | bioRxiv | 10.64898/2026.07.15.738791 | 未入库 |\n| 16 | Evolution of a genome-architecture-encoded gene regulation system in trypanosomatids | Mallik S, Sylman M, Kafri M, et al. | 2026 | bioRxiv | 10.64898/2026.07.29.740908 | 未入库 |\n| 17 | The ppGpp-HpaR1-gum regulatory pathway modulates exopolysaccharides production in *Xanthomonas campestris* | Bai K, Xu X, Yu C, et al. | 2026 | npj Biofilms Microbiomes | 10.1038/s41522-026-00926-8 | 未入库 |\n| 18 | MITF Regulates CFTR Expression to Participate in Myocardial Ischemia-Reperfusion Injury | Tang B, Zhu C, Wang H, et al. | 2026 | J. Gene Medicine | 10.1002/jgm.70102 | 未入库 |\n| 19 | Light and ABA signaling are involved in transcriptional regulation of PsbS in plants | Wang P, Yang S, Lv L, et al. | 2026 | Plant Cell Rep. | 10.1007/s00299-026-03920-8 | 未入库 |\n| 20 | Dual regulatory mechanisms of YGP1 expression in response to glucose availability in *Saccharomyces cerevisiae* | Sato M, Irie K, Suda Y, et al. | 2026 | PLOS ONE | 10.1371/journal.pone.0355681 | 未入库 |\n\n---\n\n### 📌 检索说明\n- **数据源**：Europe PMC、Nature、Science、Cell 等（arXiv 与 Semantic Scholar 因速率限制暂时失败，已重试）。\n- 检索到的论文均为 **2026 年**最新发表，覆盖转录因子、RNA 聚合酶、转录调控网络、基因表达等多个方向。\n- 所有论文目前均**未入库**。\n\n### 💡 入库建议\n以下论文与\"蛋白质转录\"主题相关性较高，推荐优先入库：\n- **#1**（转录因子靶标搜索的蛋白-蛋白相互作用）\n- **#2**（古菌转录调控综述）\n- **#6**（RNA 聚合酶 II 转录起始机制）\n- **#7**（大肠杆菌转录调控因子适应性景观）\n\n---\n\n如需将某篇论文**入库**，请告诉我论文的**编号或标题**，例如\"请入库 #1\"或\"入库 Protein-Protein Interactions Can Accelerate Transcription Factor Target Search on DNA\"。也可以告诉我您更关注的具体方向（如转录因子、RNA聚合酶、癌症转录调控等），我可以进一步精准检索。",
+        "tool_calls": [
+          {
+            "tool": "search_papers",
+            "input": {
+              "query": "protein transcription",
+              "sources": "europe_pmc,nature,science,cell,arxiv,semantic_scholar",
+              "max_results": 20
+            },
+            "output": ""
+          },
+          {
+            "tool": "search_papers",
+            "input": {
+              "query": "protein transcription regulation",
+              "sources": "europe_pmc,semantic_scholar",
+              "max_results": 15
+            },
+            "output": "{\n  \"query\": \"protein transcription gene expression transcription factors protein synthesis\",\n  \"keywords\": [\n    \"protein transcription\",\n    \"gene expression\",\n    \"transcription factors\",\n    \"protein synthesis\"\n  ],\n  \"domain\": \"分子生物学 / 基因表达调控\",\n  \"retrieved_count\": 80,\n  \"deduplicated_count\": 80,\n  \"results\": [\n    {\n      \"title\": \"Discovery proteomics identification of factors contributing to gonadotropin β expression.\",\n      \"authors\": [\n        \"Ruggiero-Ruff RE\",\n        \"Le BH\",\n    "
+          }
+        ]
+      }
+    ]
   }
 }
