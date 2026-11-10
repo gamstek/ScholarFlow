@@ -50,6 +50,12 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
+          # CI always uses upstream sources. Mirrors are only for local builds.
+          build-args: |
+            NPM_REGISTRY=https://registry.npmjs.org
+            CONDA_CHANNEL=https://conda.anaconda.org/conda-forge
+            PIP_INDEX_URL=https://pypi.org/simple
+            TORCH_WHEEL_URL=https://download.pytorch.org/whl/cpu/torch/
           load: true
           tags: scholarflow:ci
           labels: ${{ steps.meta.outputs.labels }}

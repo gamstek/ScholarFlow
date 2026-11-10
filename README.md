@@ -29,7 +29,17 @@ GitHub Actions 工作流 `.github/workflows/docker-image.yml` 会在推送到 `m
 
 镜像地址：`ghcr.io/gamstek/scholarflow:latest`，同时保留分支、版本标签及 `sha-<短提交号>` 标签。使用仓库自带的 `GITHUB_TOKEN` 发布，无需额外配置仓库密钥。
 
-镜像内包含 Python `scholarflow` 环境、后端依赖和前端构建产物。依赖下载使用清华 Conda、阿里云 PyPI、上海交大 PyTorch 和 npmmirror 镜像源；`.env`、文献数据和模型不进入镜像。
+镜像内包含 Python `scholarflow` 环境、后端依赖和前端构建产物。**GitHub CI 的所有下载操作使用官方源**（Conda Forge、PyPI、PyTorch 和 npm），不配置国内下载镜像源；`.env`、文献数据和模型不进入镜像。
+
+Dockerfile 同样默认使用官方源。仅本地构建需要加速时，可通过 `--build-arg` 覆盖下载地址，例如：
+
+```powershell
+docker build -t scholarflow:local `
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com `
+  --build-arg CONDA_CHANNEL=https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge `
+  --build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple `
+  --build-arg TORCH_WHEEL_URL=https://mirror.sjtu.edu.cn/pytorch-wheels/cpu/torch/ .
+```
 
 镜像首次发布后，在项目根目录执行：
 
