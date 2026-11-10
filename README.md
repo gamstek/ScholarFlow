@@ -23,6 +23,31 @@
 
 ## 1. 环境要求
 
+### Docker 镜像运行（GitHub CI 构建）
+
+GitHub Actions 工作流 `.github/workflows/docker-image.yml` 会在推送到 `master`、推送 `v*` 标签或手动触发时构建 **Linux amd64 CPU 镜像**，通过 PostgreSQL、首页静态资源和 API 启动检查后发布到 GHCR。PR 只构建和检查，不发布。
+
+镜像地址：`ghcr.io/gamstek/scholarflow:latest`，同时保留分支、版本标签及 `sha-<短提交号>` 标签。使用仓库自带的 `GITHUB_TOKEN` 发布，无需额外配置仓库密钥。
+
+镜像内包含 Python `scholarflow` 环境、后端依赖和前端构建产物。依赖下载使用清华 Conda、阿里云 PyPI、上海交大 PyTorch 和 npmmirror 镜像源；`.env`、文献数据和模型不进入镜像。
+
+镜像首次发布后，在项目根目录执行：
+
+```powershell
+# 准备 .env：已有配置时直接使用，首次使用时从 .env.example 复制
+# 云端模型需配置 LLM_BACKEND、CLOUD_API_KEY、CLOUD_API_BASE、CLOUD_MODEL
+# 确保 embedding/bge-m3 中已备好模型（见下文模型下载说明）
+docker compose pull
+docker compose up -d
+docker compose logs -f app
+```
+
+访问 `http://localhost:8000`。`compose.yaml` 将 `data/` 和 `embedding/` 挂载到容器，PostgreSQL 使用独立持久化卷，通过服务名 `db` 连接，无需占用本机数据库端口。此数据库卷与原 `start.bat` 使用的数据库独立，已有数据库内容需另行迁移。
+
+更新时再次执行 `docker compose pull` 和 `docker compose up -d`；停止使用 `docker compose down`。可通过 `.env` 中的 `SCHOLARFLOW_IMAGE` 指定历史镜像标签。未下载 BGE-M3 时页面和文献管理接口仍可启动，语义检索和文献处理需准备模型后重启 `app`。
+
+以下为原有本地 Python 运行方式。
+
 ### 硬件
 
 | 项目 | 最低要求 | 推荐 |

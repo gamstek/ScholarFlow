@@ -1,0 +1,41 @@
+name: scholarflow
+
+services:
+  app:
+    image: ${SCHOLARFLOW_IMAGE:-ghcr.io/gamstek/scholarflow:latest}
+    platform: linux/amd64
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-scholarflow}@db:5432/scholarflow
+      BGE_MODEL_PATH: /app/embedding/bge-m3
+      HF_HUB_OFFLINE: "1"
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./embedding:/app/embedding:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scholarflow}
+      POSTGRES_DB: scholarflow
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d scholarflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  postgres-data:

@@ -1,0 +1,17 @@
+.git
+.github
+.env
+.env.*
+**/__pycache__
+**/*.py[cod]
+**/*.log
+.cache
+.venv
+venv
+data
+embedding
+frontend/node_modules
+frontend/dist
+frontend/tsconfig.tsbuildinfo
+docs
+*.md

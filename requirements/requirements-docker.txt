@@ -1,0 +1,26 @@
+# Linux amd64 CPU image. PyTorch wheels come from the mirror set in Dockerfile.
+torch==2.11.0+cpu
+fastapi==0.138.2
+uvicorn[standard]==0.49.0
+pydantic==2.13.4
+python-multipart
+python-dotenv
+PyMuPDF
+pdfplumber
+requests
+beautifulsoup4
+lxml
+sentence-transformers==5.6.0
+faiss-cpu==1.14.3
+numpy>=1.26,<3
+tqdm
+rich
+asyncpg>=0.29
+sqlalchemy[asyncio]>=2.0
+psycopg2-binary>=2.9
+httpx>=0.27
+langchain>=1.0
+langchain-ollama>=0.3
+langchain-openai>=0.3
+ddgs>=9.0.0
+pypinyin>=0.55.0

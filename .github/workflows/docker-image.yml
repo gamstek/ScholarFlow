@@ -1,0 +1,120 @@
+name: Docker image
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-
+
+      - name: Build image for smoke check
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: scholarflow:ci
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke check with PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker network create scholarflow-ci
+          docker run -d --name scholarflow-ci-db --network scholarflow-ci --network-alias db \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=scholarflow \
+            -e POSTGRES_DB=scholarflow postgres:16-alpine
+          for attempt in $(seq 1 30); do
+            if docker exec scholarflow-ci-db pg_isready -U postgres -d scholarflow; then
+              break
+            fi
+            echo "Waiting for PostgreSQL (${attempt}/30)"
+            sleep 2
+          done
+          docker exec scholarflow-ci-db pg_isready -U postgres -d scholarflow
+          docker run -d --name scholarflow-ci-app --network scholarflow-ci \
+            -p 127.0.0.1:8000:8000 \
+            -e DATABASE_URL=postgresql+asyncpg://postgres:scholarflow@db:5432/scholarflow \
+            -e LLM_BACKEND=deepseek -e HF_HUB_OFFLINE=1 scholarflow:ci
+          curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors \
+            --max-time 10 http://127.0.0.1:8000/health
+          curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8000/ > /tmp/index.html
+          grep -q '/assets/' /tmp/index.html
+          asset=$(grep -oE '/assets/[^" ]+\.js' /tmp/index.html | head -n 1)
+          curl --fail --silent --show-error --max-time 10 "http://127.0.0.1:8000${asset}" > /dev/null
+          curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8000/stats
+          curl --fail --silent --show-error --max-time 10 'http://127.0.0.1:8000/papers?limit=1'
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish checked image
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then
+              docker tag scholarflow:ci "$tag"
+              docker push "$tag"
+            fi
+          done <<< "$IMAGE_TAGS"
+
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          docker logs scholarflow-ci-app || true
+          docker logs scholarflow-ci-db || true
+
+      - name: Clean up smoke check
+        if: always()
+        run: |
+          docker rm -f scholarflow-ci-app scholarflow-ci-db || true
+          docker network rm scholarflow-ci || true
