@@ -32,6 +32,8 @@
 
 调试(CI 下载源): 根据用户补充要求，取消使用国内镜像源的首轮构建，将 CI 和 Dockerfile 默认下载地址改为官方源，国内镜像源仅通过本地构建参数按需启用，并同步项目约定与运行说明；工作流、Compose 和 Dockerfile 静态检查通过。
 
+- 验证：GitHub Actions 构建 42767990913 全部通过，依赖导入及 PostgreSQL、首页资源和 API 启动检查成功；已发布 ghcr.io/gamstek/scholarflow 的 latest、master 和 sha-4d16980 标签，并确认远端镜像清单可读取。
+
 其他(本地运行环境): 完成 scholarflow CPU 环境依赖安装、独立 PostgreSQL 数据库初始化、前端构建和 BGE-M3 模型下载，创建待填写密钥的云端 API 本地配置；补充启动脚本的 Conda 路径检测并忽略本地模型文件，后续依赖安装按用户要求使用镜像地址。
 
 - 验证：服务已后台启动，首页、前端静态资源、健康检查及文献库接口均返回 HTTP 200，数据库连接正常，BGE-M3 已在 CPU 上完成预热；云端模型等待填写 API Key。
