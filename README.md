@@ -46,7 +46,6 @@ docker build -t scholarflow:local `
 ```powershell
 # 准备 .env：已有配置时直接使用，首次使用时从 .env.example 复制
 # 云端模型需配置 LLM_BACKEND、CLOUD_API_KEY、CLOUD_API_BASE、CLOUD_MODEL
-# 确保 embedding/bge-m3 中已备好模型（见下文模型下载说明）
 docker compose pull
 docker compose up -d
 docker compose logs -f app
@@ -54,7 +53,11 @@ docker compose logs -f app
 
 访问 `http://localhost:8000`。`compose.yaml` 将 `data/` 和 `embedding/` 挂载到容器，PostgreSQL 使用独立持久化卷，通过服务名 `db` 连接，无需占用本机数据库端口。此数据库卷与原 `start.bat` 使用的数据库独立，已有数据库内容需另行迁移。
 
-更新时再次执行 `docker compose pull` 和 `docker compose up -d`；停止使用 `docker compose down`。可通过 `.env` 中的 `SCHOLARFLOW_IMAGE` 指定历史镜像标签。未下载 BGE-M3 时页面和文献管理接口仍可启动，语义检索和文献处理需准备模型后重启 `app`。
+首次启动时，`model-init` 服务会自动将 BGE-M3 下载到本机 `embedding/bge-m3/`，验证模型能在 CPU 上加载，成功后再启动后端。下载约 2.2GB，`docker compose up -d` 首次会等待初始化完成；可在另一个终端通过 `docker compose logs -f model-init` 查看下载进度。
+
+已有完整模型会直接验证并复用；后续启动通过本地文件签名确认完整性，不联网、不重复下载。下载中断会保留缓存，再执行 `docker compose up -d` 重试；初始化失败时后端不会启动。应用本身以只读、离线方式使用模型。初始化默认从 HuggingFace 官方源下载，本地网络需要镜像加速时可在 `.env` 中设置 `HF_ENDPOINT=https://hf-mirror.com`；CI 始终使用官方地址，并实际验证首次下载和断网复用。
+
+更新时再次执行 `docker compose pull` 和 `docker compose up -d`；停止使用 `docker compose down`。修改 `.env` 后执行 `docker compose up -d --force-recreate app`。可通过 `.env` 中的 `SCHOLARFLOW_IMAGE` 指定历史镜像标签。
 
 以下为原有本地 Python 运行方式。
 

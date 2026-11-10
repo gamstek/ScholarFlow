@@ -19,8 +19,27 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
+      model-init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
+
+  model-init:
+    image: ${SCHOLARFLOW_IMAGE:-ghcr.io/gamstek/scholarflow:latest}
+    platform: linux/amd64
+    restart: "no"
+    command: ["python", "-m", "app.rag.prepare_model"]
+    environment:
+      BGE_MODEL_PATH: /app/embedding/bge-m3
+      HF_HUB_OFFLINE: "0"
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
+      HF_TOKEN: ${HF_TOKEN:-}
+      HF_HUB_DOWNLOAD_TIMEOUT: "60"
+      HF_HUB_ETAG_TIMEOUT: "30"
+    volumes:
+      - ./embedding:/app/embedding
+    healthcheck:
+      disable: true
 
   db:
     image: postgres:16-alpine

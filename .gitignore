@@ -30,6 +30,7 @@ data/eval/*_results.csv
 
 # Local model/cache
 .cache/
+embedding/bge-m3/
 
 # Data files (PDFs, embeddings, extracted text)
 data/papers/

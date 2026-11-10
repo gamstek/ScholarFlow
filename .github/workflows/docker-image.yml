@@ -62,6 +62,28 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Check model preparation lifecycle
+        shell: bash
+        run: |
+          docker run --rm \
+            --mount "type=bind,source=$PWD/tests,target=/tests,readonly" \
+            scholarflow:ci bash -c \
+            'source /opt/conda/etc/profile.d/conda.sh && conda activate scholarflow && python -m unittest discover -s /tests -p test_prepare_model.py -v'
+
+      - name: Prepare real BGE-M3 and verify offline reuse
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker volume create scholarflow-ci-embedding
+          docker run --name scholarflow-ci-model-init \
+            -v scholarflow-ci-embedding:/app/embedding \
+            -e HF_ENDPOINT=https://huggingface.co -e HF_HUB_OFFLINE=0 \
+            scholarflow:ci python -m app.rag.prepare_model
+          # A second initialization must succeed even without network access.
+          docker run --rm --network none \
+            -v scholarflow-ci-embedding:/app/embedding \
+            scholarflow:ci python -m app.rag.prepare_model
+
       - name: Smoke check with PostgreSQL
         shell: bash
         run: |
@@ -80,6 +102,7 @@ jobs:
           docker exec scholarflow-ci-db pg_isready -U postgres -d scholarflow
           docker run -d --name scholarflow-ci-app --network scholarflow-ci \
             -p 127.0.0.1:8000:8000 \
+            -v scholarflow-ci-embedding:/app/embedding:ro \
             -e DATABASE_URL=postgresql+asyncpg://postgres:scholarflow@db:5432/scholarflow \
             -e LLM_BACKEND=deepseek -e HF_HUB_OFFLINE=1 scholarflow:ci
           curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors \
@@ -90,6 +113,14 @@ jobs:
           curl --fail --silent --show-error --max-time 10 "http://127.0.0.1:8000${asset}" > /dev/null
           curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8000/stats
           curl --fail --silent --show-error --max-time 10 'http://127.0.0.1:8000/papers?limit=1'
+          for attempt in $(seq 1 60); do
+            if docker logs scholarflow-ci-app 2>&1 | grep -q 'BGE-M3 embedding model warmed up'; then
+              break
+            fi
+            echo "Waiting for BGE-M3 warmup (${attempt}/60)"
+            sleep 2
+          done
+          docker logs scholarflow-ci-app 2>&1 | grep 'BGE-M3 embedding model warmed up'
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
@@ -118,9 +149,11 @@ jobs:
         run: |
           docker logs scholarflow-ci-app || true
           docker logs scholarflow-ci-db || true
+          docker logs scholarflow-ci-model-init || true
 
       - name: Clean up smoke check
         if: always()
         run: |
-          docker rm -f scholarflow-ci-app scholarflow-ci-db || true
+          docker rm -f scholarflow-ci-app scholarflow-ci-db scholarflow-ci-model-init || true
           docker network rm scholarflow-ci || true
+          docker volume rm scholarflow-ci-embedding || true
