@@ -6,6 +6,7 @@
 **/*.py[cod]
 **/*.log
 .cache
+dist
 .venv
 venv
 data

@@ -10,6 +10,7 @@ This file acts as the standing checklist for all future work in this repository.
 - Treat the frontend as a **modern, high-end scientific workbench**; favor clarity, polish, and a technology-style visual language.
 - Keep `dev_log.md` as the single source of truth for development history.
 - GitHub CI operations must use official upstream download sources. Download mirrors may be used only for local operations, supplied through local configuration or build arguments.
+- Deployment delivery defaults to packaging existing local images and models into a Windows Docker Desktop ZIP. Do not repeat builds, CI, or end-to-end validation unless the user requests them; perform only the minimal packaging checks needed to produce the archive.
 - When `logw1.md` or `logw2.md` exist, consolidate them into `dev_log.md` before deleting the old files.
 - Avoid drift: if a request conflicts with this charter, call it out and confirm before proceeding.
 

@@ -55,11 +55,13 @@ docker compose logs -f app
 
 首次启动时，`model-init` 服务会自动将 BGE-M3 下载到本机 `embedding/bge-m3/`，验证模型能在 CPU 上加载，成功后再启动后端。下载约 2.2GB，`docker compose up -d` 首次会等待初始化完成；可在另一个终端通过 `docker compose logs -f model-init` 查看下载进度。
 
-已有完整模型会直接验证并复用；后续启动通过本地文件签名确认完整性，不联网、不重复下载。下载中断会保留缓存，再执行 `docker compose up -d` 重试；初始化失败时后端不会启动。应用本身以只读、离线方式使用模型。初始化默认从 HuggingFace 官方源下载，本地网络需要镜像加速时可在 `.env` 中设置 `HF_ENDPOINT=https://hf-mirror.com`；CI 始终使用官方地址，并实际验证首次下载和断网复用。
+已有完整模型会直接验证并复用；后续启动通过本地文件签名确认完整性，不联网、不重复下载。下载中断会保留缓存，再执行 `docker compose up -d` 重试；初始化失败时后端不会启动。应用本身以只读、离线方式使用模型。`.env.example` 为本地使用预设 `SCHOLARFLOW_IMAGE=ghcr.milu.moe/gamstek/scholarflow:latest` 和 `HF_ENDPOINT=https://hf-mirror.com`，复制到 `.env` 后生效；Compose 未配置这两个变量时回退到官方地址。CI 始终使用官方地址，并实际验证首次下载和断网复用。
 
 更新时再次执行 `docker compose pull` 和 `docker compose up -d`；停止使用 `docker compose down`。修改 `.env` 后执行 `docker compose up -d --force-recreate app`。可通过 `.env` 中的 `SCHOLARFLOW_IMAGE` 指定历史镜像标签。
 
 以下为原有本地 Python 运行方式。
+
+离线传输部署：运行 `scripts/package_deployment.ps1` 默认生成 Windows Docker Desktop 版 ZIP 包，内含应用镜像、PostgreSQL、BGE-M3 模型及双击部署脚本；传至其他 Windows 电脑后配置 `.env` 并双击 `deploy.bat` 即可。详见 [离线部署说明](docs/offline-deployment.md)。
 
 ### 硬件
 
