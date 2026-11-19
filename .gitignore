@@ -20,6 +20,8 @@ Thumbs.db
 
 # Logs
 *.log
+/backups/
+.scholarflow-upgrade.lock
 
 # Model and vector index cache
 data/index/

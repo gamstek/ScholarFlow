@@ -4,7 +4,8 @@ param(
     [string]$Image = 'scholarflow:local',
     [string]$OutputDirectory = '',
     [ValidateSet('Windows', 'Linux')]
-    [string]$Target = 'Windows'
+    [string]$Target = 'Windows',
+    [switch]$VerifyModel
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,10 +40,13 @@ try {
     if ($Target -eq 'Windows') {
         Copy-Item -LiteralPath (Join-Path $root 'scripts\deploy_offline.ps1') -Destination (Join-Path $bundle 'deploy.ps1')
         Copy-Item -LiteralPath (Join-Path $root 'scripts\deploy_offline.bat') -Destination (Join-Path $bundle 'deploy.bat')
+        Copy-Item -LiteralPath (Join-Path $root 'scripts\start_offline.bat') -Destination (Join-Path $bundle 'start.bat')
+        Copy-Item -LiteralPath (Join-Path $root 'scripts\stop_offline.bat') -Destination (Join-Path $bundle 'stop.bat')
     } else {
         Copy-Item -LiteralPath (Join-Path $root 'scripts\deploy_offline.sh') -Destination (Join-Path $bundle 'deploy.sh')
     }
     Copy-Item -LiteralPath (Join-Path $root 'docs\offline-deployment.md') -Destination (Join-Path $bundle 'README.md')
+    Copy-Item -LiteralPath (Join-Path $root 'docs\upgrade.md') -Destination (Join-Path $bundle 'upgrade.md')
 
     # Bundle a configuration template, never the live .env file.
     $template = Get-Content -LiteralPath (Join-Path $root '.env.example') -Raw -Encoding UTF8
@@ -60,9 +64,11 @@ try {
             Copy-Item -LiteralPath $entry.FullName -Destination $targetModel -Recurse -Force
         }
     }
-    Write-Host 'Validating packaged model without network access...'
-    & docker.exe run --rm --network none --mount "type=bind,source=$(Join-Path $bundle 'embedding'),target=/app/embedding" $Image python -m app.rag.prepare_model
-    if ($LASTEXITCODE -ne 0) { throw 'Packaged model validation failed.' }
+    if ($VerifyModel) {
+        Write-Host 'Validating packaged model without network access...'
+        & docker.exe run --rm --network none --mount "type=bind,source=$(Join-Path $bundle 'embedding'),target=/app/embedding" $Image python -m app.rag.prepare_model
+        if ($LASTEXITCODE -ne 0) { throw 'Packaged model validation failed.' }
+    }
 
     Write-Host 'Exporting application and PostgreSQL images...'
     # Write binary data directly to disk; PowerShell 5.1 pipelines corrupt it.
@@ -80,7 +86,7 @@ try {
     $entries = @(& tar.exe -tf $archive)
     if ($LASTEXITCODE -ne 0) { throw 'Archive verification failed.' }
     $requiredFiles = @('images.tar', 'compose.yaml', '.env.example', 'embedding/bge-m3/pytorch_model.bin')
-    if ($Target -eq 'Windows') { $requiredFiles += @('deploy.bat', 'deploy.ps1') }
+    if ($Target -eq 'Windows') { $requiredFiles += @('deploy.bat', 'deploy.ps1', 'start.bat', 'stop.bat') }
     else { $requiredFiles += 'deploy.sh' }
     foreach ($required in $requiredFiles) {
         if ($entries -notcontains "scholarflow-offline/$required") { throw "Archive is missing $required" }

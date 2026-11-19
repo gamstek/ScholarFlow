@@ -18,6 +18,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1
 
 访问 `http://localhost:8000`。首次导入镜像需要一些时间。`model-init` 显示 `Exited (0)` 表示模型验证成功，属于正常状态。
 
+首次安装完成后，日常直接双击同目录的 **`start.bat`** 启动并打开页面，双击 **`stop.bat`** 停止服务。停止只会停止容器，保留数据库、文献和模型。手动停止后需再次双击 `start.bat` 恢复。
+
 可使用 PowerShell 检查 ZIP 的 SHA256，并与随包 `.sha256` 中的值对照：
 
 ```powershell
@@ -26,6 +28,8 @@ Get-FileHash .\scholarflow-offline-windows-amd64-YYYYMMDD-HHMMSS.zip -Algorithm 
 
 ## 在当前开发机器重新打包
 
+已安装用户更新版本请使用独立的 **升级包**，操作见 [Windows 升级说明](upgrade.md)。升级时选择原部署目录，保留原配置、数据库和文献文件。
+
 在项目根目录的 PowerShell 中执行：
 
 ```powershell
@@ -33,6 +37,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package_deployment.p
 ```
 
 默认生成 Windows ZIP 包，打包 `scholarflow:local` 和本机已准备的模型，产物位于 `dist/`，同时生成 SHA256 校验文件。可通过 `-Image` 和 `-OutputDirectory` 指定镜像与输出目录。需要 Linux `.tar.gz` 版本时增加 `-Target Linux`。
+
+默认只打包已有本地资源，不重新构建或启动测试；需要额外验证模型时可显式增加 `-VerifyModel`。
 
 ## Linux 版本的传输与部署
 

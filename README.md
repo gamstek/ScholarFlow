@@ -63,6 +63,8 @@ docker compose logs -f app
 
 离线传输部署：运行 `scripts/package_deployment.ps1` 默认生成 Windows Docker Desktop 版 ZIP 包，内含应用镜像、PostgreSQL、BGE-M3 模型及双击部署脚本；传至其他 Windows 电脑后配置 `.env` 并双击 `deploy.bat` 即可。详见 [离线部署说明](docs/offline-deployment.md)。
 
+已有用户升级：运行 `scripts/package_upgrade.ps1` 生成独立升级包；在目标电脑双击 `upgrade.bat` 并选择原部署目录，脚本备份数据库与文献文件后仅更新应用，详见 [Windows 升级说明](docs/upgrade.md)。
+
 ### 硬件
 
 | 项目 | 最低要求 | 推荐 |
